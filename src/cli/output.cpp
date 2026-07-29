@@ -4,7 +4,6 @@
  */
 
 #include "mog/cli.hpp"
-
 #include "mog/util.hpp"
 
 #include <fstream>
@@ -63,8 +62,8 @@ Result<void> WriteHeaderDump(const Prepared &prepared, const Response &response)
     std::ofstream hdr(prepared.dump_header, std::ios::binary);
     if (!hdr)
     {
-        return Result<void>::Err(
-            Error{ErrorCode::FileError, "failed to open header dump file: " + prepared.dump_header});
+        return Result<void>::Err(Error{ErrorCode::FileError,
+                                       "failed to open header dump file: " + prepared.dump_header});
     }
     hdr << FormatHeaderBlock(response);
     return Result<void>::Ok();

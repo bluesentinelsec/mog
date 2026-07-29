@@ -3,9 +3,8 @@
  * @brief Transport backend registry (open for extension).
  */
 
-#include "http/detail/transport.hpp"
-
 #include "http/detail/embedded_backend.hpp"
+#include "http/detail/transport.hpp"
 
 #include <array>
 #include <mutex>
@@ -75,13 +74,11 @@ class UnimplementedTransport final : public Transport
         return name_;
     }
 
-    [[nodiscard]] Result<Response> Execute(Method, std::string_view,
-                                           const Options &) override
+    [[nodiscard]] Result<Response> Execute(Method, std::string_view, const Options &) override
     {
-        return Result<Response>::Err(Error{
-            ErrorCode::UnsupportedBackend,
-            std::string("backend '") + std::string{name_} +
-                "' is not implemented yet; use embedded (default)"});
+        return Result<Response>::Err(Error{ErrorCode::UnsupportedBackend,
+                                           std::string("backend '") + std::string{name_} +
+                                               "' is not implemented yet; use embedded (default)"});
     }
 
   private:

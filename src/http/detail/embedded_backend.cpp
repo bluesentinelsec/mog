@@ -5,6 +5,7 @@
 
 #include "http/detail/embedded_backend.hpp"
 
+#include "http/detail/content_encoding.hpp"
 #include "http/detail/env.hpp"
 #include "http/detail/prepare.hpp"
 #include "http/detail/stream.hpp"
@@ -791,6 +792,33 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
         response.history = std::move(history);
         response.backend = "embedded";
         response.cookies = CollectCookies(response.headers);
+
+        if (options.decompress && !response.body.empty())
+        {
+            std::string encoding;
+            for (const auto &h : response.headers)
+            {
+                if (EncodingEquals(h.name, "Content-Encoding"))
+                {
+                    encoding = h.value;
+                    break;
+                }
+            }
+            if (!encoding.empty())
+            {
+                auto decoded = DecodeContentEncoding(std::move(response.body), encoding,
+                                                     options.max_response_bytes);
+                if (!decoded)
+                {
+                    MOG_LOG_WARN("embedded: content-encoding decode failed: {}",
+                                 decoded.error().to_string());
+                    return Result<Response>::Err(decoded.error());
+                }
+                response.body = std::move(*decoded);
+                StripContentCodingHeaders(response.headers);
+            }
+        }
+
         response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started);
         return Result<Response>::Ok(std::move(response));

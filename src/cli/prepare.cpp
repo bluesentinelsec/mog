@@ -3,9 +3,8 @@
  * @brief Map CLI Args → Prepared Options (single responsibility: domain mapping).
  */
 
-#include "mog/cli.hpp"
-
 #include "mog/backend.hpp"
+#include "mog/cli.hpp"
 #include "mog/util.hpp"
 
 #include <chrono>
@@ -104,6 +103,7 @@ Result<Prepared> PrepareRequest(const Args &args)
     options.verify_tls = !args.insecure;
     options.allow_redirects = !args.no_location;
     options.max_redirects = args.max_redirs;
+    options.decompress = !args.no_decompress;
 
     if (!args.backend.empty())
     {

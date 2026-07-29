@@ -22,7 +22,7 @@ endif()
 project(mog
   VERSION ${MOG_VERSION}
   DESCRIPTION "Lightweight cross-platform HTTP/S client library and CLI"
-  LANGUAGES CXX
+  LANGUAGES C CXX
 )
 
 # True when this project is the top-level CMake project (not add_subdirectory /

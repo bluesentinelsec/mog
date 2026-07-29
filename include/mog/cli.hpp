@@ -60,6 +60,7 @@ struct Args
     bool get_with_data = false;
     bool silent = false;
     bool show_error = false;
+    bool no_decompress = false;
     std::string write_out;
     std::string log_level;
 };

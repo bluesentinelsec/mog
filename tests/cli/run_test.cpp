@@ -6,7 +6,6 @@
 #include "mog/cli.hpp"
 
 #include <gtest/gtest.h>
-
 #include <sstream>
 
 TEST(CliRun, PrepareErrorInvalidBackend)
