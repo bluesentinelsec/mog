@@ -5,6 +5,7 @@
 
 #include "http/detail/embedded_backend.hpp"
 
+#include "http/detail/connection_pool.hpp"
 #include "http/detail/content_encoding.hpp"
 #include "http/detail/env.hpp"
 #include "http/detail/prepare.hpp"
@@ -82,21 +83,9 @@ std::string HostHeaderValue(const Url &url)
     return url.host + ":" + std::to_string(url.port);
 }
 
-bool HasHeaderCI(const std::map<std::string, std::string> &headers, std::string_view name)
-{
-    for (const auto &h : headers)
-    {
-        if (EqualsIgnoreCase(h.first, name))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 std::string BuildRequestMessage(Method method, const Url &url,
                                 const std::map<std::string, std::string> &headers,
-                                const std::string &body, bool absolute_form)
+                                const std::string &body, bool absolute_form, bool keep_alive)
 {
     std::ostringstream oss;
     std::string target;
@@ -161,7 +150,7 @@ std::string BuildRequestMessage(Method method, const Url &url,
     }
     if (!have_conn)
     {
-        oss << "Connection: close\r\n";
+        oss << (keep_alive ? "Connection: keep-alive\r\n" : "Connection: close\r\n");
     }
     if (!body.empty() && !have_cl)
     {
@@ -182,6 +171,7 @@ struct RawResponse
 {
     int status = 0;
     std::string reason;
+    std::string version; ///< e.g. "HTTP/1.1" from the status line.
     std::vector<Header> headers;
     std::string body;
 };
@@ -314,6 +304,7 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
 
     RawResponse resp;
     resp.status = status;
+    resp.version = status_line.substr(0, first_sp);
     if (second_sp != std::string::npos)
     {
         resp.reason = status_line.substr(second_sp + 1);
@@ -699,31 +690,67 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
         MOG_LOG_DEBUG("embedded: exchange {} {}://{}:{}{}", ToString(current_method), url.scheme,
                       url.host, url.port, url.path);
 
-        auto stream_result = OpenStream(url, options, connect_timeout, io_timeout);
-        if (!stream_result)
+        const ConnectionKey conn_key = MakeConnectionKey(url, options.proxy);
+        ConnectionPool *pool = nullptr;
+        if (options.keep_alive && options.connection_pool)
         {
-            return Result<Response>::Err(stream_result.error());
-        }
-        auto &stream = **stream_result;
-
-        // Drop hop-by-hop Proxy-Connection issues; ensure no duplicate Host from prepare.
-        if (!HasHeaderCI(headers, "Host"))
-        {
-            // Host is added in BuildRequestMessage.
+            pool = static_cast<ConnectionPool *>(options.connection_pool.get());
         }
 
-        const std::string message =
-            BuildRequestMessage(current_method, url, headers, body, absolute_form);
-        MOG_LOG_DEBUG("embedded: send request ({} bytes, absolute_form={})", message.size(),
-                      absolute_form);
-        auto wr = stream.WriteString(message, io_timeout);
+        std::unique_ptr<Stream> stream;
+        bool from_pool = false;
+        if (pool != nullptr)
+        {
+            stream = pool->Take(conn_key);
+            if (stream)
+            {
+                from_pool = true;
+                MOG_LOG_DEBUG("embedded: reusing keep-alive connection for {}",
+                              conn_key.ToString());
+            }
+        }
+        if (!stream)
+        {
+            auto stream_result = OpenStream(url, options, connect_timeout, io_timeout);
+            if (!stream_result)
+            {
+                return Result<Response>::Err(stream_result.error());
+            }
+            stream = std::move(*stream_result);
+        }
+
+        const std::string message = BuildRequestMessage(current_method, url, headers, body,
+                                                        absolute_form, options.keep_alive);
+        MOG_LOG_DEBUG("embedded: send request ({} bytes, absolute_form={}, keep_alive={})",
+                      message.size(), absolute_form, options.keep_alive);
+        auto wr = stream->WriteString(message, io_timeout);
         if (!wr)
         {
             MOG_LOG_WARN("embedded: write failed: {}", wr.error().to_string());
-            return Result<Response>::Err(wr.error());
+            if (from_pool && pool != nullptr)
+            {
+                // Stale idle connection — open a fresh one once.
+                stream.reset();
+                auto stream_result = OpenStream(url, options, connect_timeout, io_timeout);
+                if (!stream_result)
+                {
+                    return Result<Response>::Err(stream_result.error());
+                }
+                stream = std::move(*stream_result);
+                from_pool = false;
+                wr = stream->WriteString(message, io_timeout);
+                if (!wr)
+                {
+                    return Result<Response>::Err(wr.error());
+                }
+            }
+            else
+            {
+                return Result<Response>::Err(wr.error());
+            }
         }
 
-        auto raw = ReadHttpResponse(stream, current_method == Method::Head, io_timeout,
+        auto raw = ReadHttpResponse(*stream, current_method == Method::Head, io_timeout,
                                     options.max_response_bytes);
         if (!raw)
         {
@@ -731,8 +758,11 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
             return Result<Response>::Err(raw.error());
         }
 
-        MOG_LOG_DEBUG("embedded: status {} {} (body {} bytes)", raw->status, raw->reason,
-                      raw->body.size());
+        MOG_LOG_DEBUG("embedded: status {} {} (body {} bytes, version={})", raw->status,
+                      raw->reason, raw->body.size(), raw->version);
+
+        const bool can_reuse = options.keep_alive && pool != nullptr &&
+                               ResponseAllowsKeepAlive(raw->version, raw->headers);
 
         if (options.allow_redirects && IsRedirect(raw->status))
         {
@@ -747,6 +777,15 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
             }
             if (!location.empty())
             {
+                if (can_reuse)
+                {
+                    pool->Put(conn_key, std::move(stream));
+                }
+                else
+                {
+                    stream.reset();
+                }
+
                 if (redirects >= options.max_redirects)
                 {
                     MOG_LOG_WARN("embedded: too many redirects (max={})", options.max_redirects);
@@ -762,7 +801,6 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
                 if (current_method == Method::Get || current_method == Method::Head)
                 {
                     body.clear();
-                    // Strip content headers that no longer apply.
                     for (auto it = headers.begin(); it != headers.end();)
                     {
                         if (EqualsIgnoreCase(it->first, "Content-Length") ||
@@ -780,6 +818,15 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
                 ++redirects;
                 continue;
             }
+        }
+
+        if (can_reuse)
+        {
+            pool->Put(conn_key, std::move(stream));
+        }
+        else
+        {
+            stream.reset();
         }
 
         Response response;

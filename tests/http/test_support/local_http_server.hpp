@@ -66,6 +66,8 @@ struct HttpResponseSpec
     bool chunked = false;
     /// When true and method is HEAD, still advertise Content-Length of body but send no entity.
     bool honor_head = true;
+    /// When true, respond with Connection: keep-alive and accept another request on the socket.
+    bool keep_alive = false;
 };
 
 /**
@@ -147,7 +149,7 @@ class LocalHttpServer
 
     void SetResponse(int status, std::string body,
                      std::vector<std::pair<std::string, std::string>> headers = {},
-                     bool chunked = false)
+                     bool chunked = false, bool keep_alive = false)
     {
         std::lock_guard lock(mu_);
         default_.status = status;
@@ -155,8 +157,23 @@ class LocalHttpServer
         default_.headers = std::move(headers);
         default_.location.reset();
         default_.chunked = chunked;
+        default_.keep_alive = keep_alive;
         default_.reason.clear();
         path_rules_.clear();
+    }
+
+    /**
+     * @brief Enable keep-alive on the default response (and path rules inherit their own flags).
+     */
+    void SetKeepAlive(bool enabled)
+    {
+        std::lock_guard lock(mu_);
+        default_.keep_alive = enabled;
+    }
+
+    [[nodiscard]] std::uint64_t connection_count() const
+    {
+        return connections_.load();
     }
 
     void SetRedirect(int status, const std::string &location)
@@ -305,11 +322,12 @@ class LocalHttpServer
         std::ostringstream oss;
         oss << "HTTP/1.1 " << spec.status << ' ' << reason << "\r\n";
 
+        const char *conn = spec.keep_alive ? "keep-alive" : "close";
         if (spec.location.has_value())
         {
             oss << "Location: " << *spec.location << "\r\n";
             oss << "Content-Length: 0\r\n";
-            oss << "Connection: close\r\n";
+            oss << "Connection: " << conn << "\r\n";
             for (const auto &h : spec.headers)
             {
                 oss << h.first << ": " << h.second << "\r\n";
@@ -329,7 +347,7 @@ class LocalHttpServer
         {
             oss << "Content-Length: " << spec.body.size() << "\r\n";
         }
-        oss << "Connection: close\r\n";
+        oss << "Connection: " << conn << "\r\n";
         for (const auto &h : spec.headers)
         {
             oss << h.first << ": " << h.second << "\r\n";
@@ -364,6 +382,7 @@ class LocalHttpServer
                 continue;
             }
             SetSocketTimeouts(client, 5);
+            ++connections_;
             HandleClient(client);
 #if defined(_WIN32)
             closesocket(client);
@@ -375,69 +394,13 @@ class LocalHttpServer
 
     void HandleClient(mog_test_sock_t client)
     {
-        std::string req;
+        std::string pending;
         char buf[4096];
-        while (req.find("\r\n\r\n") == std::string::npos)
+        for (;;)
         {
-#if defined(_WIN32)
-            const int n = ::recv(client, buf, sizeof(buf), 0);
-#else
-            const ssize_t n = ::recv(client, buf, sizeof(buf), 0);
-#endif
-            if (n <= 0)
-            {
-                return;
-            }
-            req.append(buf, static_cast<std::size_t>(n));
-            if (req.size() > 1024 * 1024)
-            {
-                return;
-            }
-        }
-
-        HttpExchange ex;
-        const auto line_end = req.find("\r\n");
-        if (line_end == std::string::npos)
-        {
-            return;
-        }
-        {
-            std::istringstream iss(req.substr(0, line_end));
-            iss >> ex.method >> ex.target;
-        }
-        std::size_t pos = line_end + 2;
-        std::size_t content_length = 0;
-        while (pos < req.size())
-        {
-            const auto next = req.find("\r\n", pos);
-            if (next == std::string::npos || next == pos)
-            {
-                pos = next == std::string::npos ? req.size() : next + 2;
-                break;
-            }
-            const std::string line = req.substr(pos, next - pos);
-            const auto colon = line.find(':');
-            if (colon != std::string::npos)
-            {
-                std::string name = line.substr(0, colon);
-                std::string value = line.substr(colon + 1);
-                while (!value.empty() && value.front() == ' ')
-                {
-                    value.erase(value.begin());
-                }
-                if (name == "Content-Length" || name == "content-length")
-                {
-                    content_length = static_cast<std::size_t>(std::stoul(value));
-                }
-                ex.headers[name] = value;
-            }
-            pos = next + 2;
-        }
-        const std::size_t body_start = req.find("\r\n\r\n");
-        if (body_start != std::string::npos)
-        {
-            ex.body = req.substr(body_start + 4);
-            while (ex.body.size() < content_length)
+            std::string req = std::move(pending);
+            pending.clear();
+            while (req.find("\r\n\r\n") == std::string::npos)
             {
 #if defined(_WIN32)
                 const int n = ::recv(client, buf, sizeof(buf), 0);
@@ -446,78 +409,156 @@ class LocalHttpServer
 #endif
                 if (n <= 0)
                 {
-                    break;
+                    return;
                 }
-                ex.body.append(buf, static_cast<std::size_t>(n));
-            }
-            if (ex.body.size() > content_length)
-            {
-                ex.body.resize(content_length);
-            }
-        }
-
-        std::string response;
-        {
-            std::lock_guard lock(mu_);
-            last_ = ex;
-            history_.push_back(ex);
-
-            if (!require_auth_.empty())
-            {
-                bool ok = false;
-                for (const auto &h : ex.headers)
+                req.append(buf, static_cast<std::size_t>(n));
+                if (req.size() > 1024 * 1024)
                 {
-                    if (h.first == "Authorization" || h.first == "authorization")
-                    {
-                        if (h.second == require_auth_)
-                        {
-                            ok = true;
-                        }
-                    }
-                }
-                if (!ok)
-                {
-                    response = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n"
-                               "Connection: close\r\n\r\n";
-                    ::send(client, response.data(),
-#if defined(_WIN32)
-                           static_cast<int>(response.size()),
-#else
-                           response.size(),
-#endif
-                           0);
                     return;
                 }
             }
 
-            std::string path = ex.target;
-            const auto q = path.find('?');
-            if (q != std::string::npos)
+            HttpExchange ex;
+            const auto line_end = req.find("\r\n");
+            if (line_end == std::string::npos)
             {
-                path = path.substr(0, q);
+                return;
             }
-
-            HttpResponseSpec spec = default_;
-            if (auto it = path_rules_.find(path); it != path_rules_.end())
             {
-                spec = it->second;
+                std::istringstream iss(req.substr(0, line_end));
+                iss >> ex.method >> ex.target;
             }
-            response = BuildWire(spec, ex.method);
-        }
-
-        ::send(client, response.data(),
+            std::size_t pos = line_end + 2;
+            std::size_t content_length = 0;
+            while (pos < req.size())
+            {
+                const auto next = req.find("\r\n", pos);
+                if (next == std::string::npos || next == pos)
+                {
+                    pos = next == std::string::npos ? req.size() : next + 2;
+                    break;
+                }
+                const std::string line = req.substr(pos, next - pos);
+                const auto colon = line.find(':');
+                if (colon != std::string::npos)
+                {
+                    std::string name = line.substr(0, colon);
+                    std::string value = line.substr(colon + 1);
+                    while (!value.empty() && value.front() == ' ')
+                    {
+                        value.erase(value.begin());
+                    }
+                    if (name == "Content-Length" || name == "content-length")
+                    {
+                        content_length = static_cast<std::size_t>(std::stoul(value));
+                    }
+                    ex.headers[name] = value;
+                }
+                pos = next + 2;
+            }
+            const std::size_t body_start = req.find("\r\n\r\n");
+            if (body_start != std::string::npos)
+            {
+                ex.body = req.substr(body_start + 4);
+                while (ex.body.size() < content_length)
+                {
 #if defined(_WIN32)
-               static_cast<int>(response.size()),
+                    const int n = ::recv(client, buf, sizeof(buf), 0);
 #else
-               response.size(),
+                    const ssize_t n = ::recv(client, buf, sizeof(buf), 0);
 #endif
-               0);
+                    if (n <= 0)
+                    {
+                        break;
+                    }
+                    ex.body.append(buf, static_cast<std::size_t>(n));
+                }
+                if (ex.body.size() > content_length)
+                {
+                    pending = ex.body.substr(content_length);
+                    ex.body.resize(content_length);
+                }
+            }
+
+            std::string response;
+            bool stay_open = false;
+            {
+                std::lock_guard lock(mu_);
+                last_ = ex;
+                history_.push_back(ex);
+
+                if (!require_auth_.empty())
+                {
+                    bool ok = false;
+                    for (const auto &h : ex.headers)
+                    {
+                        if (h.first == "Authorization" || h.first == "authorization")
+                        {
+                            if (h.second == require_auth_)
+                            {
+                                ok = true;
+                            }
+                        }
+                    }
+                    if (!ok)
+                    {
+                        response = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n"
+                                   "Connection: close\r\n\r\n";
+                        ::send(client, response.data(),
+#if defined(_WIN32)
+                               static_cast<int>(response.size()),
+#else
+                               response.size(),
+#endif
+                               0);
+                        return;
+                    }
+                }
+
+                std::string path = ex.target;
+                const auto q = path.find('?');
+                if (q != std::string::npos)
+                {
+                    path = path.substr(0, q);
+                }
+
+                HttpResponseSpec spec = default_;
+                if (auto it = path_rules_.find(path); it != path_rules_.end())
+                {
+                    spec = it->second;
+                }
+                // Honor client Connection: close even if server prefers keep-alive.
+                for (const auto &h : ex.headers)
+                {
+                    if ((h.first == "Connection" || h.first == "connection") &&
+                        h.second.find("close") != std::string::npos)
+                    {
+                        spec.keep_alive = false;
+                    }
+                }
+                stay_open = spec.keep_alive;
+                response = BuildWire(spec, ex.method);
+            }
+
+            ::send(client, response.data(),
+#if defined(_WIN32)
+                   static_cast<int>(response.size()),
+#else
+                   response.size(),
+#endif
+                   0);
+            if (!stay_open)
+            {
+                return;
+            }
+        }
     }
 
     mog_test_sock_t listen_{INVALID_SOCKET};
     std::uint16_t port_{0};
     std::thread thread_;
     std::atomic<bool> running_{false};
+    std::atomic<std::uint64_t> connections_{0};
     mutable std::mutex mu_;
     HttpExchange last_{};
     std::vector<HttpExchange> history_;

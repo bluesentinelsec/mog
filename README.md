@@ -37,7 +37,8 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | Bearer token | `WithBearerToken` | `--bearer` |
 | Custom headers | `Options::headers` | `-H` |
 | Cookies (send + Set-Cookie parse) | yes + Session jar | `-b` |
-| Redirects | yes (default on) | `--no-location`, `--max-redirs` |
+| Redirects | yes (**default on**) | `--no-location` to disable, `--max-redirs` |
+| Keep-alive / connection reuse | Session default on | (library `Options::keep_alive`) |
 | Timeouts (I/O + connect) | yes | `--timeout`, `--connect-timeout` |
 | TLS verify / CA trust | hybrid (CLI/env → system → embedded Mozilla) | `-k`, `--cacert` |
 | Runtime shared libraries | `mog::SharedLibrary` (dlopen/LoadLibrary) | n/a |
@@ -132,7 +133,8 @@ int main() {
 | `connect_timeout` | Optional connect-only deadline |
 | `verify_tls` | Certificate verification (default true) |
 | `ca_bundle` | PEM path (highest trust precedence; else env/system/embedded) |
-| `allow_redirects` / `max_redirects` | Redirect policy |
+| `allow_redirects` / `max_redirects` | Follow 3xx by default; set false / CLI `--no-location` to disable |
+| `keep_alive` | Prefer `Connection: keep-alive` (default true); Session also pools by origin |
 | `proxy` | `http://host:port` |
 | `max_response_bytes` | Body size cap (default 64 MiB; decoded size when decompressing) |
 | `decompress` | Decode Content-Encoding gzip/deflate (default true) |
@@ -320,7 +322,8 @@ The default **embedded** backend is the behavioral baseline. Conformance tests
 |------|-----------------|
 | Status | 200, 204, 4xx/5xx + `raise_for_status` |
 | Bodies | `Content-Length`, chunked TE, empty body, HEAD (no body) |
-| Redirects | 301/302/303/307/308; POST→GET on 301/302/303; preserve POST on 307/308; max redirects; disable follow |
+| Redirects | **Follow by default** (301–308); POST→GET on 301/302/303; preserve POST on 307/308; max redirects; `allow_redirects=false` / `--no-location` to not follow |
+| Keep-alive | Session reuses TCP/TLS to same origin when server allows; free functions are connection-per-request |
 | Failures | connect refused, `max_response_bytes` (CL + chunked) |
 | Auth | Basic and Bearer `Authorization` on the wire |
 | Encoding | gzip decode on by default; raw when `decompress=false` |

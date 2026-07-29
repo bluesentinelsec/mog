@@ -3,6 +3,7 @@ set(MOG_HTTP_TEST_SOURCES
   backend_test.cpp
   client_test.cpp
   conformance_test.cpp
+  keep_alive_test.cpp
   transport_test.cpp
   content_encoding_test.cpp
   ca_store_test.cpp
