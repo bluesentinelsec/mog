@@ -1,53 +1,35 @@
 /**
  * @file http.cpp
- * @brief Public free-function request API and backend dispatch.
+ * @brief Public free-function request API; dispatches via transport registry.
  */
 
 #include "mog/http.hpp"
 
-#include "http/detail/embedded_backend.hpp"
+#include "http/detail/transport.hpp"
 #include "mog/backend.hpp"
 #include "mog/log.hpp"
 
 namespace mog
 {
-namespace
-{
-
-Result<Response> Dispatch(Method method, std::string_view url, const Options &options)
-{
-    const Backend backend = ResolveBackend(options.backend);
-    MOG_LOG_INFO("request {} {} (backend={})", ToString(method), url, ToString(backend));
-    switch (backend)
-    {
-    case Backend::Embedded:
-    case Backend::Auto:
-        // Auto should already be resolved; treat as embedded.
-        return detail::EmbeddedRequest(method, url, options);
-    case Backend::Curl:
-        MOG_LOG_ERROR("backend curl not implemented");
-        return Result<Response>::Err(Error{ErrorCode::UnsupportedBackend,
-                                           "backend 'curl' is not implemented yet; use "
-                                           "embedded (default) or set MOG_BACKEND=embedded"});
-    case Backend::WinHttp:
-        MOG_LOG_ERROR("backend winhttp not implemented");
-        return Result<Response>::Err(
-            Error{ErrorCode::UnsupportedBackend,
-                  "backend 'winhttp' is not implemented yet; use embedded (default)"});
-    case Backend::Native:
-        MOG_LOG_ERROR("backend native not implemented");
-        return Result<Response>::Err(
-            Error{ErrorCode::UnsupportedBackend,
-                  "backend 'native' is not implemented yet; use embedded (default)"});
-    }
-    return Result<Response>::Err(Error{ErrorCode::Internal, "unknown backend"});
-}
-
-} // namespace
 
 Result<Response> request(Method method, std::string_view url, const Options &options)
 {
-    auto result = Dispatch(method, url, options);
+    detail::EnsureDefaultTransportsRegistered();
+
+    const Backend backend = ResolveBackend(options.backend);
+    MOG_LOG_INFO("request {} {} (backend={})", ToString(method), url, ToString(backend));
+
+    detail::Transport *transport = detail::FindTransport(backend);
+    if (transport == nullptr)
+    {
+        // Auto should have resolved; treat unknown as internal.
+        MOG_LOG_ERROR("no transport registered for backend {}", ToString(backend));
+        return Result<Response>::Err(
+            Error{ErrorCode::Internal, std::string("no transport for backend ") +
+                                           std::string{ToString(backend)}});
+    }
+
+    auto result = transport->Execute(method, url, options);
     if (!result)
     {
         MOG_LOG_ERROR("request failed: {}", result.error().to_string());

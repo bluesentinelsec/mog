@@ -2,6 +2,7 @@ set(MOG_HTTP_TEST_SOURCES
   url_test.cpp
   backend_test.cpp
   client_test.cpp
+  transport_test.cpp
 )
 if(MOG_WITH_JSON)
   list(APPEND MOG_HTTP_TEST_SOURCES json_test.cpp)

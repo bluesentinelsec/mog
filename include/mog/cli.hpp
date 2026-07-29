@@ -1,10 +1,16 @@
 /**
  * @file cli.hpp
- * @brief Testable CLI argument model and mapping into library Options.
+ * @brief CLI façade: parse argv, map flags to Options, run a request, write output.
  *
- * The mog executable uses CLI11 to fill @ref Args, then @ref PrepareRequest
- * / @ref ResolveLogLevel. Unit tests exercise the same code paths without
- * spawning a process for most cases.
+ * Responsibilities are split in the library (SRP):
+ * - ParseArgv          — argv → Args (CLI11 front-end)
+ * - PrepareRequest     — Args → Prepared (domain mapping)
+ * - ResolveLogLevel    — Args → log configuration
+ * - Run / RunArgv      — use-case orchestration (open for new backends via registry)
+ * - FormatWriteOut / Write* — presentation of results
+ *
+ * @c main.cpp should only call @ref RunArgv (or ParseArgv + Run) and map exit codes
+ * to the process.
  */
 #pragma once
 
@@ -13,6 +19,7 @@
 #include "mog/options.hpp"
 #include "mog/response.hpp"
 
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,7 +28,7 @@ namespace mog::cli
 {
 
 /**
- * @brief Parsed CLI arguments (mirrors CLI11 bindings).
+ * @brief Parsed CLI arguments (mirrors CLI11 bindings). Pure data.
  */
 struct Args
 {
@@ -58,7 +65,7 @@ struct Args
 };
 
 /**
- * @brief Fully resolved CLI request ready for mog::request / output handling.
+ * @brief Fully resolved CLI request ready for mog::request and output handling.
  */
 struct Prepared
 {
@@ -76,6 +83,17 @@ struct Prepared
 };
 
 /**
+ * @brief Optional stream injection for tests (default: cout/cerr).
+ */
+struct Streams
+{
+    std::ostream *out = &std::cout;
+    std::ostream *err = &std::cerr;
+};
+
+// --- Logging configuration (Args → LogLevel) ---
+
+/**
  * @brief Resolve log level from flags.
  *
  * Precedence: @c log_level > @c silent (off) > @c verbose (debug) > info.
@@ -84,42 +102,77 @@ struct Prepared
 [[nodiscard]] LogLevel ResolveLogLevel(const Args &args, bool *ok = nullptr);
 
 /**
+ * @brief Install the default logger at the level implied by @p args.
+ * @return false if @c log_level was set but invalid (logger still installed at info).
+ */
+bool ConfigureLogging(const Args &args);
+
+// --- Mapping (Args → Prepared) ---
+
+/**
  * @brief Load @c -d / --json values; supports @file syntax.
  */
 [[nodiscard]] Result<std::string> LoadDataArg(std::string_view data);
 
 /**
  * @brief Map CLI args into library Options + Method.
- * @return Prepared request, or Error (invalid header/backend/method/form/file).
  */
 [[nodiscard]] Result<Prepared> PrepareRequest(const Args &args);
 
+// --- Presentation ---
+
 /**
  * @brief Expand curl-style -w format tokens against a response.
- *
- * Supports: %{http_code} %{url_effective} %{time_total} %{size_download}
- * %{num_redirects}
  */
 [[nodiscard]] std::string FormatWriteOut(std::string_view format, const Response &response);
 
 /**
- * @brief Exit code after a completed exchange (0, or 22 when -f and 4xx/5xx).
+ * @brief Format a response status line + headers block (HTTP/1.1 wire style).
  */
-[[nodiscard]] int ExitCodeForResponse(const Prepared &prepared, const Response &response);
+[[nodiscard]] std::string FormatHeaderBlock(const Response &response);
 
 /**
- * @brief Exit code for a failed transport Result.
+ * @brief Write response body (and optional headers) to @p out according to @p prepared.
  */
+[[nodiscard]] Result<void> WriteResponseOutput(const Prepared &prepared, const Response &response,
+                                               std::ostream &out);
+
+/**
+ * @brief Write response headers to the dump-header path when configured.
+ */
+[[nodiscard]] Result<void> WriteHeaderDump(const Prepared &prepared, const Response &response);
+
+[[nodiscard]] int ExitCodeForResponse(const Prepared &prepared, const Response &response);
 [[nodiscard]] int ExitCodeForError(const Prepared &prepared);
+[[nodiscard]] int ExitCodeForPrepareError(const Error &error);
+
+// --- Use-case orchestration ---
+
+/**
+ * @brief Run a fully prepared CLI request: HTTP exchange + output side effects.
+ * @return Process exit code (0, 1, 2, or 22).
+ */
+[[nodiscard]] int Run(const Prepared &prepared, Streams streams = {});
+
+/**
+ * @brief Configure logging, prepare, and run from parsed @p args.
+ */
+[[nodiscard]] int Run(const Args &args, Streams streams = {});
 
 #if defined(MOG_HAS_CLI11) && MOG_HAS_CLI11
 /**
  * @brief Parse argv with CLI11 into Args (does not run the request).
- *
- * @return Args on success; Error on CLI11 parse failure or missing URL.
  */
 [[nodiscard]] Result<Args> ParseArgv(int argc, char **argv);
 [[nodiscard]] Result<Args> ParseArgv(const std::vector<std::string> &args);
+
+/**
+ * @brief Full CLI entry: parse argv, run, return exit code.
+ *
+ * Handles --version. Writes parse errors to @p streams.err.
+ * This is the function @c main should call.
+ */
+[[nodiscard]] int RunArgv(int argc, char **argv, Streams streams = {});
 #endif
 
 } // namespace mog::cli

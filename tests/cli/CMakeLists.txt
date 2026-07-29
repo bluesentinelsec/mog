@@ -1,5 +1,6 @@
 add_executable(mog_cli_test
   cli_test.cpp
+  run_test.cpp
 )
 target_link_libraries(mog_cli_test
   PRIVATE

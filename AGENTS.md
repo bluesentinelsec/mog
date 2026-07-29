@@ -10,13 +10,33 @@ For day-to-day build commands, see [README.md](README.md).
   app tree; do not invent a second `main`.
 - **Library first:** reusable code belongs in the library target under
   `src/<component>/`, not in `main.cpp`.
-- **Main is thin:** `src/main.cpp` only wires startup and calls into the library.
+- **Main is a thin shell:** `src/main.cpp` only calls `mog::cli::RunArgv` (or
+  equivalent). No domain logic, no HTTP, no flag mapping in `main`.
+- **SOLID (especially SRP + OCP):**
+  - **SRP:** each TU/component has one reason to change (parse vs prepare vs
+    run vs output vs transport).
+  - **OCP:** new HTTP stacks implement `detail::Transport` and
+    `RegisterTransport` — do not grow a central `switch` for each backend.
 - **Components:** group related code under `src/<component>/`, `tests/<component>/`,
   and `benchmarks/<component>/`.
 - **Explicit sources:** every translation unit is listed in that directory's
   `CMakeLists.txt`. Never use `file(GLOB)` for project sources.
 - **Onboard a component:** add the directory, list files in its `CMakeLists.txt`,
   then `add_subdirectory(...)` from the parent.
+
+### Layout (library responsibilities)
+
+| Path | Responsibility |
+|------|----------------|
+| `src/main.cpp` | `argc`/`argv` → `mog::cli::RunArgv` → exit code |
+| `src/cli/parse.cpp` | CLI11: argv → `Args` |
+| `src/cli/prepare.cpp` | `Args` → `Prepared` / `Options` |
+| `src/cli/run.cpp` | Orchestrate log + prepare + `mog::request` + output |
+| `src/cli/output.cpp` | write-out, header dump, body writing, exit codes |
+| `src/http/http.cpp` | Public HTTP API; dispatch via transport registry |
+| `src/http/detail/transport.hpp` | `Transport` interface + registry |
+| `src/http/detail/embedded_backend.*` | Default embedded stack |
+| `src/http/detail/*` | sockets, TLS, URL, prepare wire body |
 
 Public headers live under `include/mog/` (directory tree matches the C++ namespace).
 

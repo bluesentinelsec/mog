@@ -262,11 +262,17 @@ mog [options] URL
 ## Project layout
 
 ```text
-include/mog/     Public headers
-src/http/        Client + embedded backend
-src/main.cpp     CLI
-tests/http/      Unit + local-server integration tests
+include/mog/              Public API (http, session, options, cli, log, json, …)
+src/main.cpp              Thin shell → mog::cli::RunArgv only
+src/cli/                  parse | prepare | run | output (SRP)
+src/http/                 HTTP API + transport registry
+src/http/detail/          Embedded stack, sockets, TLS, URL
+tests/cli/ tests/http/    Unit tests by component
 ```
+
+- **Main** has no domain logic (library-first, SOLID).
+- **New transports:** implement `detail::Transport`, call `RegisterTransport`.
+- **CLI tests** cover flags without spawning a process.
 
 Bootstrapped with [cppboot](https://github.com/bluesentinelsec/cppboot).
 
