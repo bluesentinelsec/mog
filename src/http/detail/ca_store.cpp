@@ -128,7 +128,8 @@ Result<CaLoadInfo> LoadWindowsSystemStore(mbedtls_x509_crt *chain)
     const wchar_t *stores[] = {L"ROOT", L"CA"};
     for (const wchar_t *store_name : stores)
     {
-        HCERTSTORE store = (*open)(nullptr, store_name);
+        // MSVC: HCRYPTPROV_LEGACY is an integer handle type; nullptr does not convert.
+        HCERTSTORE store = (*open)(static_cast<HCRYPTPROV_LEGACY>(0), store_name);
         if (store == nullptr)
         {
             continue;
