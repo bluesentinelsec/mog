@@ -39,8 +39,22 @@ For day-to-day build commands, see [README.md](README.md).
 | `src/http/detail/ca_store.*` | Hybrid TLS trust (CLI/env → system → embedded) |
 | `src/dynload/` + `include/mog/dynload.hpp` | Runtime shared-library loader |
 | `src/http/detail/*` | sockets, TLS, URL, prepare wire body |
+| `tests/http/conformance_test.cpp` | Embedded HTTP/1.1 behavioral contract (local only) |
+| `tests/http/test_support/` | Shared in-process HTTP server for client tests |
 
 Public headers live under `include/mog/` (directory tree matches the C++ namespace).
+
+### Embedded HTTP contract
+
+The **default `embedded` backend** is the behavioral source of truth. Before
+adding platform-native transports, extend and keep green:
+
+- `tests/http/conformance_test.cpp` — status codes, bodies (CL/chunked/HEAD),
+  redirects (301–308 + method change rules), timeouts/connect fail,
+  `max_response_bytes`, auth headers, gzip, backend id
+- Local server only (`LocalHttpServer`); **no public network** in CI
+
+Platform backends must match this contract under the same public `mog::` API.
 
 ### Resource resolution policy
 
