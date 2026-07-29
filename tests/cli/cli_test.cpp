@@ -55,15 +55,14 @@ mog::cli::Prepared MustPrepare(mog::cli::Args args)
 
 std::string TempFile(const std::string &contents)
 {
-    char path[] = "/tmp/mog_cli_test_XXXXXX";
 #if defined(_WIN32)
-    // Simple unique path on Windows CI.
     static int n = 0;
     std::string win = "mog_cli_test_" + std::to_string(n++) + ".tmp";
     std::ofstream out(win, std::ios::binary);
     out << contents;
     return win;
 #else
+    char path[] = "/tmp/mog_cli_test_XXXXXX";
     const int fd = mkstemp(path);
     EXPECT_GE(fd, 0);
     if (fd >= 0)
