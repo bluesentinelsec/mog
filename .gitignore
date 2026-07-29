@@ -55,4 +55,6 @@ default.profraw
 *.lib
 *.exe
 *.pdb
-mog
+
+# Convenience symlink created by `make` (repo-root binary only)
+/mog
