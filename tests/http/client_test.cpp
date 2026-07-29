@@ -158,15 +158,37 @@ class LocalHttpServer
     }
 
   private:
+    static void SetSocketTimeouts(sock_t fd, int seconds)
+    {
+#if defined(_WIN32)
+        DWORD ms = static_cast<DWORD>(seconds * 1000);
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&ms), sizeof(ms));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&ms), sizeof(ms));
+#else
+        timeval tv{};
+        tv.tv_sec = seconds;
+        tv.tv_usec = 0;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+    }
+
     void AcceptLoop()
     {
+        // Accept timeout so destructor can join promptly under parallel ctest.
+        SetSocketTimeouts(listen_, 1);
         while (running_)
         {
             sock_t client = ::accept(listen_, nullptr, nullptr);
             if (client == INVALID_SOCKET)
             {
-                break;
+                if (!running_)
+                {
+                    break;
+                }
+                continue; // timeout — retry while still running
             }
+            SetSocketTimeouts(client, 5);
             HandleClient(client);
 #if defined(_WIN32)
             closesocket(client);
