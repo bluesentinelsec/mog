@@ -2,6 +2,7 @@ set(MOG_HTTP_TEST_SOURCES
   url_test.cpp
   backend_test.cpp
   client_test.cpp
+  conformance_test.cpp
   transport_test.cpp
   content_encoding_test.cpp
   ca_store_test.cpp
@@ -22,6 +23,7 @@ target_link_libraries(mog_http_test
 target_include_directories(mog_http_test
   PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 if(WIN32)
   target_link_libraries(mog_http_test PRIVATE ws2_32)

@@ -306,6 +306,27 @@ tests/…                   Unit tests by component
 - **New transports:** implement `detail::Transport`, call `RegisterTransport`.
 - **Platform APIs:** resolve via `mog::SharedLibrary` at runtime.
 - **CLI tests** cover flags without spawning a process.
+- **Embedded contract:** `tests/http/conformance_test.cpp` (local server only; no
+  public network). Platform backends should match this suite under the same API.
+
+---
+
+## Embedded HTTP contract
+
+The default **embedded** backend is the behavioral baseline. Conformance tests
+(`EmbeddedConformance.*` in `ctest`) cover, without leaving the machine:
+
+| Area | Locked behavior |
+|------|-----------------|
+| Status | 200, 204, 4xx/5xx + `raise_for_status` |
+| Bodies | `Content-Length`, chunked TE, empty body, HEAD (no body) |
+| Redirects | 301/302/303/307/308; POST→GET on 301/302/303; preserve POST on 307/308; max redirects; disable follow |
+| Failures | connect refused, `max_response_bytes` (CL + chunked) |
+| Auth | Basic and Bearer `Authorization` on the wire |
+| Encoding | gzip decode on by default; raw when `decompress=false` |
+| Backend | `Response::backend == "embedded"` |
+
+Shared harness: `tests/http/test_support/local_http_server.hpp`.
 
 Bootstrapped with [cppboot](https://github.com/bluesentinelsec/cppboot).
 
