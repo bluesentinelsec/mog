@@ -5,6 +5,7 @@
 #pragma once
 
 #include "mog/backend.hpp"
+#include "mog/cli.hpp"
 #include "mog/error.hpp"
 #include "mog/http.hpp"
 #include "mog/log.hpp"

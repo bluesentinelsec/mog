@@ -193,6 +193,9 @@ auto r = mog::get("https://example.com");
 
 CLI flags: `-v` (debug), `-s` (off), `--log-level trace|debug|info|…`.
 
+CLI argument mapping is unit-tested in `tests/cli/` (every flag → `Options` /
+method / log level, plus CLI11 parse of subcommands and repeated `-H`/`-F`).
+
 ### `Response`
 
 | Member / method | Purpose |

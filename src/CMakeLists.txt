@@ -2,6 +2,7 @@
 # Each logical subdirectory owns a CMakeLists.txt that lists sources explicitly.
 add_subdirectory(version)
 add_subdirectory(http)
+add_subdirectory(cli)
 
 # Painfully obvious program entrypoint: src/main.cpp
 # Skipped when this project is consumed via add_subdirectory / FetchContent
@@ -25,3 +26,4 @@ if(MOG_BUILD_APP)
   endif()
   cppboot_set_project_warnings(${PROJECT_NAME}_app)
 endif()
+
