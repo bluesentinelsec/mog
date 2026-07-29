@@ -6,6 +6,31 @@ set(BENCHMARK_TAG v1.9.5)
 set(CLI11_TAG v2.6.2)
 set(NLOHMANN_JSON_TAG v3.12.0)
 set(SPDLOG_TAG v1.17.0)
+set(MBEDTLS_TAG v3.6.3)
+
+# ---------------------------------------------------------------------------
+# Embedded HTTPS stack (always available — default backend)
+# ---------------------------------------------------------------------------
+
+# mbedTLS: small, static-link-friendly TLS used by the embedded backend.
+# Always fetched so the library can HTTPS without system libcurl/OpenSSL.
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  mbedtls
+  GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+  GIT_TAG        ${MBEDTLS_TAG}
+  GIT_SHALLOW    TRUE
+  GIT_SUBMODULES "framework"
+)
+FetchContent_MakeAvailable(mbedtls)
+foreach(_mog_mbedtls_tgt IN ITEMS mbedtls mbedx509 mbedcrypto everest p256m)
+  cppboot_mark_system_includes(${_mog_mbedtls_tgt})
+endforeach()
 
 # ---------------------------------------------------------------------------
 # Preferred application libraries (optional — defaults follow top-level vs embed)

@@ -21,7 +21,7 @@ endif()
 
 project(mog
   VERSION ${MOG_VERSION}
-  DESCRIPTION "C++ project bootstrapped by cppboot"
+  DESCRIPTION "Lightweight cross-platform HTTP/S client library and CLI"
   LANGUAGES CXX
 )
 

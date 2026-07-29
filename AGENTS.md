@@ -27,9 +27,13 @@ in CMake) instead of inventing a parallel stack:
 
 | Need | Prefer | Notes |
 |------|--------|--------|
+| HTTP/S client | **mog** public API (`include/mog/`) | Default backend: embedded HTTP/1.1 + mbedTLS |
 | Parse CLI args | **CLI11** (`CLI11::CLI11`) | `#include <CLI/CLI.hpp>` |
 | Parse / emit JSON | **nlohmann/json** (`nlohmann_json::nlohmann_json`) | `#include <nlohmann/json.hpp>` |
 | Console (and file) logging | **spdlog** (`spdlog::spdlog`) | `#include <spdlog/spdlog.h>` |
+
+HTTP implementation lives under `src/http/` (public surface in `include/mog/`).
+Backend selection: CLI `--backend` > env `MOG_BACKEND` > default `embedded`.
 
 They are linked `PUBLIC` on the project library when enabled. Options:
 

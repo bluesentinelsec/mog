@@ -55,3 +55,4 @@ default.profraw
 *.lib
 *.exe
 *.pdb
+mog

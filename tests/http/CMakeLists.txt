@@ -1,0 +1,15 @@
+add_executable(mog_http_test
+  url_test.cpp
+  backend_test.cpp
+)
+target_link_libraries(mog_http_test
+  PRIVATE
+    ${PROJECT_NAME}_lib
+    GTest::gtest_main
+)
+target_include_directories(mog_http_test
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+cppboot_set_project_warnings(mog_http_test)
+gtest_discover_tests(mog_http_test)

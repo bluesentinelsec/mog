@@ -1,8 +1,7 @@
 # Library implementation components.
 # Each logical subdirectory owns a CMakeLists.txt that lists sources explicitly.
 add_subdirectory(version)
-# Example for new code:
-#   add_subdirectory(parser)
+add_subdirectory(http)
 
 # Painfully obvious program entrypoint: src/main.cpp
 # Skipped when this project is consumed via add_subdirectory / FetchContent
