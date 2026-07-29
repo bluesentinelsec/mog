@@ -1,7 +1,37 @@
 #include "mog/backend.hpp"
 
+#include "http/detail/env.hpp"
+
 #include <gtest/gtest.h>
+
+#if defined(_WIN32)
 #include <stdlib.h>
+#else
+#include <stdlib.h>
+#endif
+
+namespace
+{
+
+void ClearEnv(const char *name)
+{
+#if defined(_WIN32)
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
+}
+
+void SetEnvVar(const char *name, const char *value)
+{
+#if defined(_WIN32)
+    _putenv_s(name, value);
+#else
+    setenv(name, value, 1);
+#endif
+}
+
+} // namespace
 
 TEST(BackendTest, ParseNames)
 {
@@ -22,20 +52,11 @@ TEST(BackendTest, ResolveExplicitOverride)
 TEST(BackendTest, DefaultIsEmbedded)
 {
     // Clear env for this process if set — restore afterward.
-    const char *prev = std::getenv("MOG_BACKEND");
-    std::string previous = prev ? prev : "";
-#if defined(_WIN32)
-    _putenv_s("MOG_BACKEND", "");
-#else
-    unsetenv("MOG_BACKEND");
-#endif
+    const auto previous = mog::detail::GetEnv("MOG_BACKEND");
+    ClearEnv("MOG_BACKEND");
     EXPECT_EQ(mog::ResolveBackend(std::nullopt), mog::Backend::Embedded);
-    if (!previous.empty())
+    if (previous.has_value())
     {
-#if defined(_WIN32)
-        _putenv_s("MOG_BACKEND", previous.c_str());
-#else
-        setenv("MOG_BACKEND", previous.c_str(), 1);
-#endif
+        SetEnvVar("MOG_BACKEND", previous->c_str());
     }
 }

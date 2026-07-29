@@ -5,9 +5,9 @@
 
 #include "mog/backend.hpp"
 
-#include <algorithm>
+#include "http/detail/env.hpp"
+
 #include <cctype>
-#include <cstdlib>
 #include <string>
 
 namespace mog
@@ -74,12 +74,12 @@ std::string_view ToString(Backend backend) noexcept
 
 std::optional<Backend> BackendFromEnvironment()
 {
-    const char *value = std::getenv("MOG_BACKEND");
-    if (value == nullptr || value[0] == '\0')
+    const auto value = detail::GetEnv("MOG_BACKEND");
+    if (!value.has_value())
     {
         return std::nullopt;
     }
-    return ParseBackend(value);
+    return ParseBackend(*value);
 }
 
 Backend ResolveBackend(std::optional<Backend> explicit_override)

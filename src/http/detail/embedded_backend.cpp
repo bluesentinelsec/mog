@@ -5,6 +5,7 @@
 
 #include "http/detail/embedded_backend.hpp"
 
+#include "http/detail/env.hpp"
 #include "http/detail/stream.hpp"
 #include "http/detail/url.hpp"
 #include "mog/version.hpp"
@@ -13,7 +14,6 @@
 #include <array>
 #include <cctype>
 #include <charconv>
-#include <cstdlib>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -53,17 +53,17 @@ std::optional<std::string> ResolveCaBundle(const Options &options)
     {
         return options.ca_bundle;
     }
-    if (const char *env = std::getenv("SSL_CERT_FILE"); env != nullptr && env[0] != '\0')
+    if (auto env = GetEnv("SSL_CERT_FILE"); env.has_value())
     {
-        return std::string{env};
+        return env;
     }
-    if (const char *env = std::getenv("REQUESTS_CA_BUNDLE"); env != nullptr && env[0] != '\0')
+    if (auto env = GetEnv("REQUESTS_CA_BUNDLE"); env.has_value())
     {
-        return std::string{env};
+        return env;
     }
-    if (const char *env = std::getenv("CURL_CA_BUNDLE"); env != nullptr && env[0] != '\0')
+    if (auto env = GetEnv("CURL_CA_BUNDLE"); env.has_value())
     {
-        return std::string{env};
+        return env;
     }
     return std::nullopt;
 }
