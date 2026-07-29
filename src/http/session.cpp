@@ -5,23 +5,40 @@
 
 #include "mog/session.hpp"
 
+#include "http/detail/connection_pool.hpp"
 #include "mog/log.hpp"
 #include "mog/version.hpp"
 
 namespace mog
 {
 
-Session::Session()
+namespace
 {
-    defaults_.user_agent = std::string("mog/") + std::string{mog::Version()};
+
+std::shared_ptr<void> MakeSessionPool()
+{
+    return std::shared_ptr<void>(new detail::ConnectionPool(),
+                                 [](void *p) { delete static_cast<detail::ConnectionPool *>(p); });
 }
 
-Session::Session(Options defaults) : defaults_(std::move(defaults))
+} // namespace
+
+Session::Session() : connection_pool_(MakeSessionPool())
+{
+    defaults_.user_agent = std::string("mog/") + std::string{mog::Version()};
+    defaults_.keep_alive = true;
+    defaults_.allow_redirects = true;
+}
+
+Session::Session(Options defaults)
+    : defaults_(std::move(defaults)), connection_pool_(MakeSessionPool())
 {
     if (defaults_.user_agent.empty())
     {
         defaults_.user_agent = std::string("mog/") + std::string{mog::Version()};
     }
+    // Session always owns a pool; keep_alive default stays true unless caller cleared it
+    // on the provided defaults (respect explicit false).
 }
 
 void Session::set_defaults(Options defaults)
@@ -183,6 +200,15 @@ Options Session::merge_options(const Options &per_request) const
     {
         merged.decompress = per_request.decompress;
     }
+    if (per_request.keep_alive != virgin.keep_alive)
+    {
+        merged.keep_alive = per_request.keep_alive;
+    }
+    // Prefer per-request pool if attached; otherwise session pool when keep-alive.
+    if (per_request.connection_pool)
+    {
+        merged.connection_pool = per_request.connection_pool;
+    }
 
     return merged;
 }
@@ -222,8 +248,12 @@ Result<Response> Session::request(Method method, std::string_view url, const Opt
         std::lock_guard lock(mutex_);
         merged = merge_options(options);
         full_url = resolve_url(url);
-        MOG_LOG_DEBUG("session: {} {} (jar={} cookies, base={})", ToString(method), full_url,
-                      cookie_jar_.size(), base_url_);
+        if (merged.keep_alive && !merged.connection_pool)
+        {
+            merged.connection_pool = connection_pool_;
+        }
+        MOG_LOG_DEBUG("session: {} {} (jar={} cookies, base={}, keep_alive={})", ToString(method),
+                      full_url, cookie_jar_.size(), base_url_, merged.keep_alive);
     }
 
     auto result = mog::request(method, full_url, merged);

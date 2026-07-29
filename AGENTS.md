@@ -40,6 +40,8 @@ For day-to-day build commands, see [README.md](README.md).
 | `src/dynload/` + `include/mog/dynload.hpp` | Runtime shared-library loader |
 | `src/http/detail/*` | sockets, TLS, URL, prepare wire body |
 | `tests/http/conformance_test.cpp` | Embedded HTTP/1.1 behavioral contract (local only) |
+| `tests/http/keep_alive_test.cpp` | Session connection reuse |
+| `src/http/detail/connection_pool.*` | Idle stream pool for keep-alive |
 | `tests/http/test_support/` | Shared in-process HTTP server for client tests |
 
 Public headers live under `include/mog/` (directory tree matches the C++ namespace).

@@ -9,6 +9,7 @@
 #include "mog/response.hpp"
 
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -17,13 +18,17 @@ namespace mog
 {
 
 /**
- * @brief Reusable client with default headers/options and a simple cookie jar.
+ * @brief Reusable client with default headers/options, cookie jar, and keep-alive.
  *
  * All public methods are safe to call concurrently from multiple threads.
- * Each request uses a snapshot of session state taken under the lock.
+ * Each request snapshots session state under a mutex; the embedded transport
+ * may reuse an idle connection from this session's pool (thread-safe).
+ *
+ * Defaults: @c allow_redirects=true, @c keep_alive=true (Connection: keep-alive
+ * and origin pooling). Disable redirects with @c Options::allow_redirects=false
+ * or CLI @c --no-location; disable pooling with @c Options::keep_alive=false.
  *
  * Cookie handling is intentionally simple (name → value, no domain/path matching).
- * That covers typical API-token and session-id workflows.
  */
 class Session
 {
@@ -108,6 +113,8 @@ class Session
     Options defaults_;
     std::string base_url_;
     std::map<std::string, std::string> cookie_jar_;
+    /// Shared with Options::connection_pool on each request when keep_alive is on.
+    std::shared_ptr<void> connection_pool_;
 };
 
 } // namespace mog

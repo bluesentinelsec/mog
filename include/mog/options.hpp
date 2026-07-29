@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -106,11 +107,34 @@ struct Options
      */
     std::optional<std::string> ca_bundle;
 
-    /// Follow 3xx responses with a Location header.
+    /**
+     * @brief Follow 3xx responses with a Location header (default: true).
+     *
+     * Redirect following is enabled by default for both free functions and
+     * @ref Session (typical client behavior). Disable with @c false or CLI
+     * @c --no-location when the 3xx response itself is required.
+     */
     bool allow_redirects = true;
 
     /// Maximum redirects when @ref allow_redirects is true.
     int max_redirects = 5;
+
+    /**
+     * @brief Prefer HTTP/1.1 keep-alive (`Connection: keep-alive` when unset).
+     *
+     * Default @c true. Free functions still open one connection per request
+     * (no pool). @ref Session attaches an internal pool so successive requests
+     * to the same origin can reuse TCP/TLS. Set @c false (or send
+     * @c Connection: close) to force a new connection each time.
+     */
+    bool keep_alive = true;
+
+    /**
+     * @brief Opaque keep-alive pool handle (set by @ref Session; not for app code).
+     *
+     * When null, @ref keep_alive only affects the request Connection header.
+     */
+    std::shared_ptr<void> connection_pool;
 
     /// Backend override (CLI / Options). Env @c MOG_BACKEND is consulted if unset.
     std::optional<Backend> backend;
