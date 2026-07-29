@@ -1,6 +1,7 @@
 # Library implementation components.
 # Each logical subdirectory owns a CMakeLists.txt that lists sources explicitly.
 add_subdirectory(version)
+add_subdirectory(dynload)
 add_subdirectory(http)
 add_subdirectory(cli)
 

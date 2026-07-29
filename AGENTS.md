@@ -36,9 +36,26 @@ For day-to-day build commands, see [README.md](README.md).
 | `src/http/http.cpp` | Public HTTP API; dispatch via transport registry |
 | `src/http/detail/transport.hpp` | `Transport` interface + registry |
 | `src/http/detail/embedded_backend.*` | Default embedded stack |
+| `src/http/detail/ca_store.*` | Hybrid TLS trust (CLI/env → system → embedded) |
+| `src/dynload/` + `include/mog/dynload.hpp` | Runtime shared-library loader |
 | `src/http/detail/*` | sockets, TLS, URL, prepare wire body |
 
 Public headers live under `include/mog/` (directory tree matches the C++ namespace).
+
+### Resource resolution policy
+
+For platform-dependent material (CA trust, future native backends, optional
+system libraries), prefer:
+
+1. **CLI or Options** (and documented env overrides)
+2. **System resources** (OS paths / stores), loaded via **runtime** dynamic
+   linking (`mog::SharedLibrary` → `dlopen` / `LoadLibrary`) — do not hard-link
+   optional platform libraries into the static binary
+3. **Static / embedded** fallbacks (e.g. Mozilla CA PEM in-tree)
+4. **Fail loud** with remediation guidance
+
+Regenerate the embedded CA with `python3 scripts/embed_cacert.py` after updating
+`data/cacert.pem`. CI workflow `update-ca-bundle.yml` automates that daily.
 
 ## Preferred libraries
 

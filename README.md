@@ -39,7 +39,8 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | Cookies (send + Set-Cookie parse) | yes + Session jar | `-b` |
 | Redirects | yes (default on) | `--no-location`, `--max-redirs` |
 | Timeouts (I/O + connect) | yes | `--timeout`, `--connect-timeout` |
-| TLS verify / CA bundle | yes | `-k`, `--cacert` |
+| TLS verify / CA trust | hybrid (CLI/env → system → embedded Mozilla) | `-k`, `--cacert` |
+| Runtime shared libraries | `mog::SharedLibrary` (dlopen/LoadLibrary) | n/a |
 | HTTP proxy (+ HTTPS CONNECT) | `Options::proxy` | `-x` |
 | Response size limit | `max_response_bytes` (decoded when decompressing) | (library) |
 | Disable decompress | `Options::decompress = false` | `--no-decompress` |
@@ -130,7 +131,7 @@ int main() {
 | `timeout` | I/O deadline (default 30s) |
 | `connect_timeout` | Optional connect-only deadline |
 | `verify_tls` | Certificate verification (default true) |
-| `ca_bundle` | PEM path (else `SSL_CERT_FILE` / system paths) |
+| `ca_bundle` | PEM path (highest trust precedence; else env/system/embedded) |
 | `allow_redirects` / `max_redirects` | Redirect policy |
 | `proxy` | `http://host:port` |
 | `max_response_bytes` | Body size cap (default 64 MiB; decoded size when decompressing) |
@@ -261,19 +262,49 @@ mog [options] URL
 
 ---
 
+## TLS trust (hybrid)
+
+When HTTPS verification is enabled (`verify_tls` / default), mog resolves CA roots
+in this order (first successful source wins):
+
+1. **CLI / Options** — `--cacert` / `Options::ca_bundle`
+2. **Environment** — `MOG_CA_BUNDLE`, then `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+   `CURL_CA_BUNDLE`, then `SSL_CERT_DIR` (colon-separated PEM directories)
+3. **System** — common OS PEM paths; on Windows, the CryptoAPI `ROOT`/`CA` stores
+   via **runtime** `LoadLibrary("crypt32.dll")` (not a static link)
+4. **Embedded** — Mozilla CA roots shipped in the binary (`data/cacert.pem`,
+   same export as [curl’s cacert.pem](https://curl.se/ca/cacert.pem))
+5. **Fail loud** — error text lists how to supply a bundle
+
+Minimal containers (`scratch`, distroless without `ca-certificates`) still verify
+public HTTPS via the embedded bundle. Set `MOG_NO_EMBEDDED_CA=1` to forbid that
+fallback. A daily GitHub Action refreshes the bundle and opens a PR when Mozilla’s
+export changes.
+
+Resource policy used elsewhere in mog:
+
+> **CLI or ENV override → system resources → static/embedded → fail loud**  
+> Optional platform libraries are loaded at runtime (`mog::SharedLibrary` /
+> `dlopen` / `LoadLibrary`), not hard-linked.
+
+---
+
 ## Project layout
 
 ```text
-include/mog/              Public API (http, session, options, cli, log, json, …)
+include/mog/              Public API (http, session, options, dynload, cli, …)
 src/main.cpp              Thin shell → mog::cli::RunArgv only
 src/cli/                  parse | prepare | run | output (SRP)
+src/dynload/              SharedLibrary implementation
 src/http/                 HTTP API + transport registry
-src/http/detail/          Embedded stack, sockets, TLS, URL, content encoding
-tests/cli/ tests/http/    Unit tests by component
+src/http/detail/          Embedded stack, TLS, CA store, URL, content encoding
+data/cacert.pem           Mozilla CA bundle source (regenerate embed via script)
+tests/…                   Unit tests by component
 ```
 
 - **Main** has no domain logic (library-first, SOLID).
 - **New transports:** implement `detail::Transport`, call `RegisterTransport`.
+- **Platform APIs:** resolve via `mog::SharedLibrary` at runtime.
 - **CLI tests** cover flags without spawning a process.
 
 Bootstrapped with [cppboot](https://github.com/bluesentinelsec/cppboot).
@@ -286,4 +317,6 @@ MIT — see [LICENSE](LICENSE).
 
 **FetchContent (static) dependencies of note:** mbedTLS (Apache-2.0) for TLS;
 [miniz](https://github.com/richgel999/miniz) (MIT) for gzip/deflate Content-Encoding.
-Neither requires a system shared library at runtime.
+**Embedded data:** Mozilla CA roots via curl’s `cacert.pem` export (see
+`data/cacert.pem`). Optional OS crypto libraries (e.g. Windows `crypt32.dll`) are
+loaded only at runtime when present.

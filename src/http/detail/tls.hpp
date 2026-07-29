@@ -33,7 +33,8 @@ class TlsSession
      * @param socket Connected TCP socket (ownership retained by caller; must outlive session).
      * @param hostname SNI / cert verification hostname.
      * @param verify Verify server certificate when true.
-     * @param ca_bundle Optional PEM file path; otherwise system defaults are tried.
+     * @param ca_bundle Optional PEM file path (CLI/Options). When empty, trust is
+     *        resolved via env → system store → embedded Mozilla roots.
      */
     [[nodiscard]] Result<void> Handshake(TcpSocket &socket, std::string_view hostname, bool verify,
                                          const std::optional<std::string> &ca_bundle,

@@ -1,0 +1,117 @@
+# Daily check: if Mozilla CA roots (via curl cacert.pem) changed, open a PR.
+name: Update CA bundle
+
+on:
+  schedule:
+    # 06:15 UTC daily
+    - cron: "15 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-ca-bundle
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Check Mozilla / curl cacert.pem
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fetch latest cacert.pem
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/cacert.pem https://curl.se/ca/cacert.pem
+          # Sanity: must look like a PEM bundle
+          grep -q "BEGIN CERTIFICATE" /tmp/cacert.pem
+          # Prefer Mozilla header when present
+          head -n 10 /tmp/cacert.pem || true
+
+      - name: Compare with committed bundle
+        id: diff
+        run: |
+          set -euo pipefail
+          if cmp -s /tmp/cacert.pem data/cacert.pem; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "CA bundle is up to date."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "CA bundle differs from upstream."
+            # Show header dates for the PR body
+            old_date="$(grep -m1 -i 'Certificate data from Mozilla as of' data/cacert.pem || true)"
+            new_date="$(grep -m1 -i 'Certificate data from Mozilla as of' /tmp/cacert.pem || true)"
+            {
+              echo "old_date<<EOF"
+              echo "${old_date}"
+              echo "EOF"
+              echo "new_date<<EOF"
+              echo "${new_date}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Python
+        if: steps.diff.outputs.changed == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Regenerate embed and open PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp /tmp/cacert.pem data/cacert.pem
+          python3 scripts/embed_cacert.py
+
+          branch="chore/update-ca-bundle-$(date -u +%Y%m%d)"
+          # Reuse branch if a previous run left one open with same tip day
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "$branch"
+          git add data/cacert.pem src/http/detail/mozilla_ca_bundle.cpp
+          if git diff --cached --quiet; then
+            echo "No staged changes after regenerate; exiting."
+            exit 0
+          fi
+
+          git commit -m "$(cat <<'EOF'
+          chore: update embedded Mozilla CA bundle
+
+          Automated refresh from https://curl.se/ca/cacert.pem (Mozilla roots).
+          EOF
+          )"
+
+          git push -u origin "$branch" --force
+
+          # Open PR if none exists for this branch
+          if gh pr list --head "$branch" --json number --jq 'length' | grep -qx '0'; then
+            gh pr create \
+              --title "chore: update embedded Mozilla CA bundle" \
+              --body "$(cat <<EOF
+          ## Summary
+
+          Automated daily check found a newer CA bundle at [curl cacert.pem](https://curl.se/ca/cacert.pem) (Mozilla trust store export).
+
+          | | |
+          |--|--|
+          | Previous | ${{ steps.diff.outputs.old_date }} |
+          | Updated | ${{ steps.diff.outputs.new_date }} |
+
+          Regenerated \`src/http/detail/mozilla_ca_bundle.cpp\` via \`scripts/embed_cacert.py\`.
+
+          ## Test plan
+          - [ ] CI green (build + unit tests)
+          - [ ] Spot-check \`CaStore.*\` tests
+          EOF
+          )"
+          else
+            echo "PR already open for $branch"
+          fi
