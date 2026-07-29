@@ -289,7 +289,8 @@ class LocalHttpServer
         std::size_t off = 0;
         while (off < body.size())
         {
-            const std::size_t n = std::min(kChunk, body.size() - off);
+            // Parenthesize to avoid Windows min/max macros from winsock headers.
+            const std::size_t n = (std::min)(kChunk, body.size() - off);
             oss << std::hex << n << "\r\n";
             oss << body.substr(off, n) << "\r\n";
             off += n;
