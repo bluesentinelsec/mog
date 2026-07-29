@@ -30,6 +30,9 @@ enum class ErrorCode
     ProtocolError,
     TooManyRedirects,
     HttpStatus,
+    ResponseTooLarge,
+    ProxyError,
+    FileError,
     Internal,
 };
 

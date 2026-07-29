@@ -1,19 +1,22 @@
 /**
  * @file embedded_backend.cpp
- * @brief HTTP/1.1 client over TCP/TLS (default backend).
+ * @brief HTTP/1.1 client over TCP/TLS (default backend) for web client workloads.
  */
 
 #include "http/detail/embedded_backend.hpp"
 
 #include "http/detail/env.hpp"
+#include "http/detail/prepare.hpp"
 #include "http/detail/stream.hpp"
 #include "http/detail/url.hpp"
+#include "mog/util.hpp"
 #include "mog/version.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -77,18 +80,39 @@ std::string HostHeaderValue(const Url &url)
     return url.host + ":" + std::to_string(url.port);
 }
 
-std::string BuildRequestLineAndHeaders(Method method, const Url &url,
-                                       const std::map<std::string, std::string> &headers,
-                                       const std::string &body, const std::string &user_agent)
+bool HasHeaderCI(const std::map<std::string, std::string> &headers, std::string_view name)
+{
+    for (const auto &h : headers)
+    {
+        if (EqualsIgnoreCase(h.first, name))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string BuildRequestMessage(Method method, const Url &url,
+                                const std::map<std::string, std::string> &headers,
+                                const std::string &body, bool absolute_form)
 {
     std::ostringstream oss;
-    const std::string path = url.path.empty() ? "/" : url.path;
-    oss << ToString(method) << ' ' << path;
-    if (!url.query.empty())
+    std::string target;
+    if (absolute_form)
     {
-        oss << '?' << url.query;
+        target = BuildUrl(url);
     }
-    oss << " HTTP/1.1\r\n";
+    else
+    {
+        target = url.path.empty() ? "/" : url.path;
+        if (!url.query.empty())
+        {
+            target.push_back('?');
+            target += url.query;
+        }
+    }
+
+    oss << ToString(method) << ' ' << target << " HTTP/1.1\r\n";
 
     bool have_host = false;
     bool have_ua = false;
@@ -127,8 +151,7 @@ std::string BuildRequestLineAndHeaders(Method method, const Url &url,
     }
     if (!have_ua)
     {
-        const std::string ua = user_agent.empty() ? DefaultUserAgent() : user_agent;
-        oss << "User-Agent: " << ua << "\r\n";
+        oss << "User-Agent: " << DefaultUserAgent() << "\r\n";
     }
     if (!have_accept)
     {
@@ -142,7 +165,14 @@ std::string BuildRequestLineAndHeaders(Method method, const Url &url,
     {
         oss << "Content-Length: " << body.size() << "\r\n";
     }
+    else if (body.empty() &&
+             (method == Method::Post || method == Method::Put || method == Method::Patch) &&
+             !have_cl)
+    {
+        oss << "Content-Length: 0\r\n";
+    }
     oss << "\r\n";
+    oss << body;
     return oss.str();
 }
 
@@ -150,7 +180,7 @@ struct RawResponse
 {
     int status = 0;
     std::string reason;
-    std::map<std::string, std::string> headers;
+    std::vector<Header> headers;
     std::string body;
 };
 
@@ -187,15 +217,25 @@ Result<std::string> ReadUntil(Stream &stream, std::string &buffer, std::string_v
 }
 
 Result<void> ReadExact(Stream &stream, std::string &buffer, std::string &out, std::size_t need,
-                       std::chrono::milliseconds timeout)
+                       std::chrono::milliseconds timeout, std::size_t max_total)
 {
     out.clear();
     out.reserve(need);
     while (out.size() < need)
     {
+        if (max_total > 0 && out.size() >= max_total)
+        {
+            return Result<void>::Err(
+                Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+        }
         if (!buffer.empty())
         {
             const std::size_t take = std::min(buffer.size(), need - out.size());
+            if (max_total > 0 && out.size() + take > max_total)
+            {
+                return Result<void>::Err(
+                    Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+            }
             out.append(buffer.data(), take);
             buffer.erase(0, take);
             continue;
@@ -215,8 +255,19 @@ Result<void> ReadExact(Stream &stream, std::string &buffer, std::string &out, st
     return Result<void>::Ok();
 }
 
+Result<void> AppendCapped(std::string &body, const char *data, std::size_t n, std::size_t max_total)
+{
+    if (max_total > 0 && body.size() + n > max_total)
+    {
+        return Result<void>::Err(
+            Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+    }
+    body.append(data, n);
+    return Result<void>::Ok();
+}
+
 Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
-                                     std::chrono::milliseconds timeout)
+                                     std::chrono::milliseconds timeout, std::size_t max_body)
 {
     std::string buffer;
     auto header_block = ReadUntil(stream, buffer, "\r\n\r\n", timeout, 1024 * 1024);
@@ -236,7 +287,6 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
         status_line.pop_back();
     }
 
-    // HTTP/1.1 200 OK
     if (status_line.rfind("HTTP/", 0) != 0)
     {
         return Result<RawResponse>::Err(Error{ErrorCode::ProtocolError, "invalid status line"});
@@ -285,12 +335,11 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
         }
         std::string name = line.substr(0, colon);
         std::string value = line.substr(colon + 1);
-        // trim value leading space
         while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
         {
             value.erase(value.begin());
         }
-        resp.headers.emplace(std::move(name), std::move(value));
+        resp.headers.push_back(Header{std::move(name), std::move(value)});
     }
 
     if (head_request || status == 204 || status == 304)
@@ -298,14 +347,13 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
         return Result<RawResponse>::Ok(std::move(resp));
     }
 
-    // Transfer-Encoding: chunked?
     bool chunked = false;
     std::optional<std::size_t> content_length;
     for (const auto &h : resp.headers)
     {
-        if (EqualsIgnoreCase(h.first, "Transfer-Encoding"))
+        if (EqualsIgnoreCase(h.name, "Transfer-Encoding"))
         {
-            std::string v = h.second;
+            std::string v = h.value;
             for (char &c : v)
             {
                 c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -315,12 +363,12 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
                 chunked = true;
             }
         }
-        if (EqualsIgnoreCase(h.first, "Content-Length"))
+        if (EqualsIgnoreCase(h.name, "Content-Length"))
         {
             std::size_t cl = 0;
             const auto [ptr, ec] =
-                std::from_chars(h.second.data(), h.second.data() + h.second.size(), cl);
-            if (ec == std::errc{} && ptr == h.second.data() + h.second.size())
+                std::from_chars(h.value.data(), h.value.data() + h.value.size(), cl);
+            if (ec == std::errc{} && ptr == h.value.data() + h.value.size())
             {
                 content_length = cl;
             }
@@ -337,7 +385,6 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
             {
                 return Result<RawResponse>::Err(size_line.error());
             }
-            // ignore chunk extensions
             std::string hex = *size_line;
             const auto semi = hex.find(';');
             if (semi != std::string::npos)
@@ -354,13 +401,11 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
             }
             if (chunk_size == 0)
             {
-                // trailer headers until blank line
                 auto trailers = ReadUntil(stream, buffer, "\r\n", timeout, 64 * 1024);
                 if (!trailers)
                 {
                     return Result<RawResponse>::Err(trailers.error());
                 }
-                // if non-empty trailer start, consume until empty line
                 while (!trailers->empty())
                 {
                     auto next = ReadUntil(stream, buffer, "\r\n", timeout, 64 * 1024);
@@ -375,16 +420,20 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
                 }
                 break;
             }
+            if (max_body > 0 && body.size() + chunk_size > max_body)
+            {
+                return Result<RawResponse>::Err(
+                    Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+            }
             std::string chunk;
-            auto exact = ReadExact(stream, buffer, chunk, chunk_size, timeout);
+            auto exact = ReadExact(stream, buffer, chunk, chunk_size, timeout, 0);
             if (!exact)
             {
                 return Result<RawResponse>::Err(exact.error());
             }
             body += chunk;
-            // trailing CRLF after chunk
             std::string crlf;
-            auto cr = ReadExact(stream, buffer, crlf, 2, timeout);
+            auto cr = ReadExact(stream, buffer, crlf, 2, timeout, 0);
             if (!cr)
             {
                 return Result<RawResponse>::Err(cr.error());
@@ -401,8 +450,13 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
 
     if (content_length.has_value())
     {
+        if (max_body > 0 && *content_length > max_body)
+        {
+            return Result<RawResponse>::Err(
+                Error{ErrorCode::ResponseTooLarge, "Content-Length exceeds max_response_bytes"});
+        }
         std::string body;
-        auto exact = ReadExact(stream, buffer, body, *content_length, timeout);
+        auto exact = ReadExact(stream, buffer, body, *content_length, timeout, max_body);
         if (!exact)
         {
             return Result<RawResponse>::Err(exact.error());
@@ -411,22 +465,29 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
         return Result<RawResponse>::Ok(std::move(resp));
     }
 
-    // Read until EOF (Connection: close).
     std::string body = std::move(buffer);
+    if (max_body > 0 && body.size() > max_body)
+    {
+        return Result<RawResponse>::Err(
+            Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+    }
     for (;;)
     {
         std::array<char, 8192> tmp{};
         auto n = stream.ReadSome(tmp.data(), tmp.size(), timeout);
         if (!n)
         {
-            // timeout with partial body — treat as error
             return Result<RawResponse>::Err(n.error());
         }
         if (*n == 0)
         {
             break;
         }
-        body.append(tmp.data(), *n);
+        auto cap = AppendCapped(body, tmp.data(), *n, max_body);
+        if (!cap)
+        {
+            return Result<RawResponse>::Err(cap.error());
+        }
     }
     resp.body = std::move(body);
     return Result<RawResponse>::Ok(std::move(resp));
@@ -445,20 +506,163 @@ Method MethodAfterRedirect(Method method, int status)
     }
     if ((status == 301 || status == 302) && method == Method::Post)
     {
-        // Common browser-like behavior for 301/302 on POST.
         return Method::Get;
     }
     return method;
+}
+
+std::map<std::string, std::string> CollectCookies(const std::vector<Header> &headers)
+{
+    std::map<std::string, std::string> cookies;
+    for (const auto &h : headers)
+    {
+        if (!EqualsIgnoreCase(h.name, "Set-Cookie"))
+        {
+            continue;
+        }
+        std::string name;
+        std::string value;
+        if (ParseSetCookie(h.value, name, value))
+        {
+            cookies[std::move(name)] = std::move(value);
+        }
+    }
+    return cookies;
+}
+
+Result<void> HttpConnectTunnel(Stream &stream, const Url &target, std::chrono::milliseconds timeout)
+{
+    std::ostringstream oss;
+    oss << "CONNECT " << target.host << ':' << target.port << " HTTP/1.1\r\n";
+    oss << "Host: " << target.host << ':' << target.port << "\r\n";
+    oss << "Connection: keep-alive\r\n\r\n";
+    auto wr = stream.WriteString(oss.str(), timeout);
+    if (!wr)
+    {
+        return Result<void>::Err(wr.error());
+    }
+    // Read proxy response headers only (body empty for 200).
+    std::string buffer;
+    auto header_block = ReadUntil(stream, buffer, "\r\n\r\n", timeout, 64 * 1024);
+    if (!header_block)
+    {
+        return Result<void>::Err(
+            Error{ErrorCode::ProxyError, std::string("proxy CONNECT failed: ") +
+                                             std::string{header_block.error().message()}});
+    }
+    // leftover buffer discarded — CONNECT has no body.
+    if (header_block->rfind("HTTP/", 0) != 0)
+    {
+        return Result<void>::Err(Error{ErrorCode::ProxyError, "invalid proxy CONNECT response"});
+    }
+    const auto sp = header_block->find(' ');
+    if (sp == std::string::npos)
+    {
+        return Result<void>::Err(Error{ErrorCode::ProxyError, "invalid proxy CONNECT status"});
+    }
+    int status = 0;
+    const auto rest = header_block->substr(sp + 1);
+    const auto end = rest.find(' ');
+    const std::string code = end == std::string::npos ? rest : rest.substr(0, end);
+    const auto [ptr, ec] = std::from_chars(code.data(), code.data() + code.size(), status);
+    if (ec != std::errc{} || status < 200 || status >= 300)
+    {
+        return Result<void>::Err(
+            Error{ErrorCode::ProxyError, "proxy CONNECT rejected with status " + code});
+    }
+    return Result<void>::Ok();
+}
+
+Result<std::unique_ptr<Stream>> OpenStream(const Url &url, const Options &options,
+                                           std::chrono::milliseconds connect_timeout,
+                                           std::chrono::milliseconds io_timeout)
+{
+    const bool use_proxy = options.proxy.has_value() && !options.proxy->empty();
+
+    if (!use_proxy)
+    {
+        auto sock_result = TcpSocket::Connect(url.host, url.port, connect_timeout);
+        if (!sock_result)
+        {
+            return Result<std::unique_ptr<Stream>>::Err(sock_result.error());
+        }
+        TcpSocket sock = std::move(*sock_result);
+        if (url.scheme == "https")
+        {
+            TlsSession tls;
+            auto hs = tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options),
+                                    io_timeout);
+            if (!hs)
+            {
+                return Result<std::unique_ptr<Stream>>::Err(hs.error());
+            }
+            return Result<std::unique_ptr<Stream>>::Ok(
+                std::make_unique<Stream>(std::move(sock), std::move(tls)));
+        }
+        return Result<std::unique_ptr<Stream>>::Ok(std::make_unique<Stream>(std::move(sock)));
+    }
+
+    auto proxy_url = ParseUrl(*options.proxy);
+    if (!proxy_url)
+    {
+        return Result<std::unique_ptr<Stream>>::Err(
+            Error{ErrorCode::ProxyError, "invalid proxy URL: " + *options.proxy});
+    }
+    if (proxy_url->scheme != "http")
+    {
+        return Result<std::unique_ptr<Stream>>::Err(
+            Error{ErrorCode::ProxyError,
+                  "only http:// proxies are supported (got " + proxy_url->scheme + ")"});
+    }
+
+    auto sock_result = TcpSocket::Connect(proxy_url->host, proxy_url->port, connect_timeout);
+    if (!sock_result)
+    {
+        return Result<std::unique_ptr<Stream>>::Err(sock_result.error());
+    }
+    TcpSocket sock = std::move(*sock_result);
+
+    if (url.scheme == "https")
+    {
+        // CONNECT over plain TCP, then TLS handshake on the same socket.
+        {
+            Stream plain{std::move(sock)};
+            auto tunnel = HttpConnectTunnel(plain, url, io_timeout);
+            if (!tunnel)
+            {
+                return Result<std::unique_ptr<Stream>>::Err(tunnel.error());
+            }
+            sock = plain.ReleaseSocket();
+        }
+        TlsSession tls;
+        auto hs =
+            tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options), io_timeout);
+        if (!hs)
+        {
+            return Result<std::unique_ptr<Stream>>::Err(hs.error());
+        }
+        return Result<std::unique_ptr<Stream>>::Ok(
+            std::make_unique<Stream>(std::move(sock), std::move(tls)));
+    }
+
+    return Result<std::unique_ptr<Stream>>::Ok(std::make_unique<Stream>(std::move(sock)));
 }
 
 } // namespace
 
 Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const Options &options)
 {
+    const auto started = std::chrono::steady_clock::now();
+    const auto connect_timeout = ConnectTimeout(options);
+    const auto io_timeout = IoTimeout(options);
+    const PreparedRequest prepared = PrepareRequest(options);
+
     std::string current_url = AppendQuery(url_text, options.params);
     Method current_method = method;
-    std::string body = options.body;
+    std::string body = prepared.body;
+    std::map<std::string, std::string> headers = prepared.headers;
     int redirects = 0;
+    std::vector<std::string> history;
 
     for (;;)
     {
@@ -468,57 +672,32 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
             return Result<Response>::Err(parsed.error());
         }
         const Url url = *parsed;
+        const bool use_proxy = options.proxy.has_value() && !options.proxy->empty();
+        const bool absolute_form = use_proxy && url.scheme == "http";
 
-        auto sock_result = TcpSocket::Connect(url.host, url.port, options.timeout);
-        if (!sock_result)
+        auto stream_result = OpenStream(url, options, connect_timeout, io_timeout);
+        if (!stream_result)
         {
-            return Result<Response>::Err(sock_result.error());
+            return Result<Response>::Err(stream_result.error());
         }
-        TcpSocket sock = std::move(*sock_result);
+        auto &stream = **stream_result;
 
-        std::unique_ptr<Stream> stream;
-        if (url.scheme == "https")
+        // Drop hop-by-hop Proxy-Connection issues; ensure no duplicate Host from prepare.
+        if (!HasHeaderCI(headers, "Host"))
         {
-            TlsSession tls;
-            auto hs = tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options),
-                                    options.timeout);
-            if (!hs)
-            {
-                return Result<Response>::Err(hs.error());
-            }
-            stream = std::make_unique<Stream>(std::move(sock), std::move(tls));
-        }
-        else
-        {
-            stream = std::make_unique<Stream>(std::move(sock));
+            // Host is added in BuildRequestMessage.
         }
 
-        const std::string request_head = BuildRequestLineAndHeaders(
-            current_method, url, options.headers, body, options.user_agent);
-        auto wr = stream->WriteString(request_head, options.timeout);
+        const std::string message =
+            BuildRequestMessage(current_method, url, headers, body, absolute_form);
+        auto wr = stream.WriteString(message, io_timeout);
         if (!wr)
         {
             return Result<Response>::Err(wr.error());
         }
-        if (!body.empty() && current_method != Method::Head && current_method != Method::Get)
-        {
-            auto wb = stream->WriteString(body, options.timeout);
-            if (!wb)
-            {
-                return Result<Response>::Err(wb.error());
-            }
-        }
-        else if (!body.empty() && (current_method == Method::Get || current_method == Method::Head))
-        {
-            // Still send body if caller provided one (unusual but allowed).
-            auto wb = stream->WriteString(body, options.timeout);
-            if (!wb)
-            {
-                return Result<Response>::Err(wb.error());
-            }
-        }
 
-        auto raw = ReadHttpResponse(*stream, current_method == Method::Head, options.timeout);
+        auto raw = ReadHttpResponse(stream, current_method == Method::Head, io_timeout,
+                                    options.max_response_bytes);
         if (!raw)
         {
             return Result<Response>::Err(raw.error());
@@ -529,9 +708,9 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
             std::string location;
             for (const auto &h : raw->headers)
             {
-                if (EqualsIgnoreCase(h.first, "Location"))
+                if (EqualsIgnoreCase(h.name, "Location"))
                 {
-                    location = h.second;
+                    location = h.value;
                     break;
                 }
             }
@@ -544,10 +723,25 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
                         "exceeded max_redirects (" + std::to_string(options.max_redirects) + ")"});
                 }
                 current_url = JoinUrl(current_url, location);
+                history.push_back(current_url);
                 current_method = MethodAfterRedirect(current_method, raw->status);
                 if (current_method == Method::Get || current_method == Method::Head)
                 {
                     body.clear();
+                    // Strip content headers that no longer apply.
+                    for (auto it = headers.begin(); it != headers.end();)
+                    {
+                        if (EqualsIgnoreCase(it->first, "Content-Length") ||
+                            EqualsIgnoreCase(it->first, "Content-Type") ||
+                            EqualsIgnoreCase(it->first, "Transfer-Encoding"))
+                        {
+                            it = headers.erase(it);
+                        }
+                        else
+                        {
+                            ++it;
+                        }
+                    }
                 }
                 ++redirects;
                 continue;
@@ -561,7 +755,11 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
         response.headers = std::move(raw->headers);
         response.body = std::move(raw->body);
         response.history_len = redirects;
+        response.history = std::move(history);
         response.backend = "embedded";
+        response.cookies = CollectCookies(response.headers);
+        response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started);
         return Result<Response>::Ok(std::move(response));
     }
 }

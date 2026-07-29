@@ -23,9 +23,9 @@ Result<Response> Dispatch(Method method, std::string_view url, const Options &op
         // Auto should already be resolved; treat as embedded.
         return detail::EmbeddedRequest(method, url, options);
     case Backend::Curl:
-        return Result<Response>::Err(
-            Error{ErrorCode::UnsupportedBackend, "backend 'curl' is not implemented yet; use "
-                                                 "embedded (default) or set MOG_BACKEND=embedded"});
+        return Result<Response>::Err(Error{ErrorCode::UnsupportedBackend,
+                                           "backend 'curl' is not implemented yet; use "
+                                           "embedded (default) or set MOG_BACKEND=embedded"});
     case Backend::WinHttp:
         return Result<Response>::Err(
             Error{ErrorCode::UnsupportedBackend,

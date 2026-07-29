@@ -10,4 +10,5 @@
 #include "mog/options.hpp"
 #include "mog/response.hpp"
 #include "mog/session.hpp"
+#include "mog/util.hpp"
 #include "mog/version.hpp"

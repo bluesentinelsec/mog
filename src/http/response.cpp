@@ -5,7 +5,6 @@
 
 #include "mog/response.hpp"
 
-#include <algorithm>
 #include <cctype>
 #include <sstream>
 
@@ -22,9 +21,8 @@ bool EqualsIgnoreCase(std::string_view a, std::string_view b)
     }
     for (std::size_t i = 0; i < a.size(); ++i)
     {
-        const auto ca = static_cast<unsigned char>(a[i]);
-        const auto cb = static_cast<unsigned char>(b[i]);
-        if (std::tolower(ca) != std::tolower(cb))
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i])))
         {
             return false;
         }
@@ -38,12 +36,30 @@ std::string Response::header(std::string_view name) const
 {
     for (const auto &entry : headers)
     {
-        if (EqualsIgnoreCase(entry.first, name))
+        if (EqualsIgnoreCase(entry.name, name))
         {
-            return entry.second;
+            return entry.value;
         }
     }
     return {};
+}
+
+std::vector<std::string> Response::header_all(std::string_view name) const
+{
+    std::vector<std::string> out;
+    for (const auto &entry : headers)
+    {
+        if (EqualsIgnoreCase(entry.name, name))
+        {
+            out.push_back(entry.value);
+        }
+    }
+    return out;
+}
+
+std::string Response::content_type() const
+{
+    return header("Content-Type");
 }
 
 Result<void> Response::raise_for_status() const

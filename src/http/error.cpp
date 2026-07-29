@@ -42,6 +42,12 @@ std::string_view ErrorCodeName(ErrorCode code) noexcept
         return "too_many_redirects";
     case ErrorCode::HttpStatus:
         return "http_status";
+    case ErrorCode::ResponseTooLarge:
+        return "response_too_large";
+    case ErrorCode::ProxyError:
+        return "proxy_error";
+    case ErrorCode::FileError:
+        return "file_error";
     case ErrorCode::Internal:
         return "internal";
     }

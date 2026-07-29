@@ -190,9 +190,9 @@ Result<void> TlsSession::Handshake(TcpSocket &socket, std::string_view hostname,
         }
         if (!loaded)
         {
-            return Result<void>::Err(
-                Error{ErrorCode::TlsFailed, "no CA certificates found; set Options::ca_bundle or "
-                                            "SSL_CERT_FILE, or disable verify"});
+            return Result<void>::Err(Error{ErrorCode::TlsFailed,
+                                           "no CA certificates found; set Options::ca_bundle or "
+                                           "SSL_CERT_FILE, or disable verify"});
         }
         mbedtls_ssl_conf_ca_chain(&impl_->conf, &impl_->cacert, nullptr);
     }

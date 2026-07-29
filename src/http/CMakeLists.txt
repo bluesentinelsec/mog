@@ -7,9 +7,11 @@ target_sources(${PROJECT_NAME}_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/response.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/http.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/util.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/url.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/socket.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/detail/prepare.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/embedded_backend.cpp
 )
 

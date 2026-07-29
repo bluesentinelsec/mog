@@ -65,6 +65,19 @@ class Stream
         return WriteAll(s.data(), s.size(), timeout);
     }
 
+    /**
+     * @brief Release the underlying TCP socket (plain streams only).
+     *
+     * Used after an HTTP CONNECT tunnel so TLS can be layered on the same socket.
+     * Invalidates this Stream.
+     */
+    [[nodiscard]] TcpSocket ReleaseSocket()
+    {
+        use_tls_ = false;
+        tls_ = TlsSession{};
+        return std::move(socket_);
+    }
+
   private:
     TcpSocket socket_;
     TlsSession tls_{};
