@@ -48,6 +48,8 @@ std::string_view ErrorCodeName(ErrorCode code) noexcept
         return "proxy_error";
     case ErrorCode::FileError:
         return "file_error";
+    case ErrorCode::JsonError:
+        return "json_error";
     case ErrorCode::Internal:
         return "internal";
     }

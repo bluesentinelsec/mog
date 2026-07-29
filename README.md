@@ -28,7 +28,9 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS | yes | yes |
 | HTTPS (mbedTLS) | yes | yes |
 | Query params | `Options::params` | URL / `-G -d` |
-| JSON body | `WithJson` / `Options::json` | `--json` |
+| JSON body (string) | `WithJson` / `Options::json` | `--json` |
+| JSON body (nlohmann) | `WithJson(opt, json)` / `post_json` | via `--json` text |
+| Parse JSON response | `ParseJson(response)` | n/a |
 | Form body (urlencoded) | `WithForm` / `Options::form` | `-F name=value` |
 | Raw body / file body | `Options::body` / `ReadFile` | `-d`, `-d @file` |
 | Basic auth | `WithBasicAuth` | `-u user:pass` |
@@ -79,12 +81,21 @@ int main() {
     std::cout << r->status_code << " " << r->elapsed.count() << "ms\n";
     std::cout << r->text();
 
-    // JSON POST
+    // JSON POST — string form always works
     mog::Options opt;
     mog::WithJson(opt, R"({"name":"mog"})");
     mog::WithBearerToken(opt, "secret-token");
     opt.timeout = std::chrono::seconds(15);
     auto r2 = mog::post("https://api.example.com/v1/items", opt);
+
+    // JSON POST — nlohmann/json (cppboot default; MOG_WITH_JSON=ON)
+    nlohmann::json payload = {{"name", "mog"}, {"n", 1}};
+    auto r2b = mog::post_json("https://api.example.com/v1/items", payload);
+    if (r2b) {
+        if (auto doc = mog::ParseJson(*r2b)) {
+            std::cout << (*doc).dump(2) << "\n";
+        }
+    }
 
     // Form POST
     auto r3 = mog::post("https://example.com/login",
@@ -126,6 +137,32 @@ int main() {
 | `user_agent` | Default User-Agent if not set |
 
 Body precedence: **`json` > `form` > `body`**.
+
+### nlohmann/json (cppboot)
+
+cppboot projects ship **nlohmann/json** via FetchContent (`MOG_WITH_JSON`, default
+ON for top-level builds). When enabled, mog defines `MOG_HAS_JSON=1` and
+`#include <mog/mog.hpp>` pulls in `mog/json.hpp`:
+
+```cpp
+#include <mog/mog.hpp>
+#include <nlohmann/json.hpp>  // also available through mog/json.hpp
+
+nlohmann::json req = {{"user", "a"}, {"ok", true}};
+auto res = mog::post_json("https://httpbin.org/post", req);
+if (!res) { /* transport error */ }
+auto doc = mog::ParseJson(*res);  // Result<nlohmann::json>
+```
+
+| API | Role |
+|-----|------|
+| `WithJson(opt, nlohmann::json)` | Serialize into `Options::json` |
+| `JsonOptions(nlohmann::json)` | Build Options with JSON body |
+| `post_json` / `put_json` / `patch_json` | One-shot JSON requests |
+| `ParseJson(Response)` / `ParseJson(string_view)` | Parse body → `nlohmann::json` |
+
+String overloads remain for CLI and callers that already have serialized JSON.
+Disable with `-DMOG_WITH_JSON=OFF` if you embed mog without JSON.
 
 ### `Response`
 

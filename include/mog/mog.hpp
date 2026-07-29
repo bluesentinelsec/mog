@@ -12,3 +12,8 @@
 #include "mog/session.hpp"
 #include "mog/util.hpp"
 #include "mog/version.hpp"
+
+// nlohmann/json interop (cppboot preferred JSON library) when built with MOG_WITH_JSON.
+#if defined(MOG_HAS_JSON) && MOG_HAS_JSON
+#include "mog/json.hpp"
+#endif

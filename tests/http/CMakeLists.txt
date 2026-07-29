@@ -1,8 +1,13 @@
-add_executable(mog_http_test
+set(MOG_HTTP_TEST_SOURCES
   url_test.cpp
   backend_test.cpp
   client_test.cpp
 )
+if(MOG_WITH_JSON)
+  list(APPEND MOG_HTTP_TEST_SOURCES json_test.cpp)
+endif()
+
+add_executable(mog_http_test ${MOG_HTTP_TEST_SOURCES})
 target_link_libraries(mog_http_test
   PRIVATE
     ${PROJECT_NAME}_lib

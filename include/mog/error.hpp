@@ -33,6 +33,7 @@ enum class ErrorCode
     ResponseTooLarge,
     ProxyError,
     FileError,
+    JsonError,
     Internal,
 };
 

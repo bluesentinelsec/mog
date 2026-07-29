@@ -158,9 +158,28 @@ inline Options &WithBearerToken(Options &opt, std::string token)
     return opt;
 }
 
+/**
+ * @brief Set raw JSON text as the body (Content-Type applied at send time).
+ *
+ * When MOG_WITH_JSON is enabled, @c WithJson also accepts @c nlohmann::json
+ * (see mog/json.hpp). String / string_view / C-string overloads are provided so
+ * string literals are not ambiguous with nlohmann's converting constructors.
+ */
 inline Options &WithJson(Options &opt, std::string json_body)
 {
     opt.json = std::move(json_body);
+    return opt;
+}
+
+inline Options &WithJson(Options &opt, std::string_view json_body)
+{
+    opt.json = std::string{json_body};
+    return opt;
+}
+
+inline Options &WithJson(Options &opt, const char *json_body)
+{
+    opt.json = json_body != nullptr ? std::string{json_body} : std::string{};
     return opt;
 }
 
@@ -183,12 +202,26 @@ inline Options &WithTimeout(Options &opt, std::chrono::milliseconds timeout)
 }
 
 /**
- * @brief Build Options for a JSON POST/PUT body in one shot.
+ * @brief Build Options for a JSON POST/PUT body in one shot (raw text).
  */
 [[nodiscard]] inline Options JsonOptions(std::string json_body)
 {
     Options opt;
     opt.json = std::move(json_body);
+    return opt;
+}
+
+[[nodiscard]] inline Options JsonOptions(std::string_view json_body)
+{
+    Options opt;
+    opt.json = std::string{json_body};
+    return opt;
+}
+
+[[nodiscard]] inline Options JsonOptions(const char *json_body)
+{
+    Options opt;
+    opt.json = json_body != nullptr ? std::string{json_body} : std::string{};
     return opt;
 }
 

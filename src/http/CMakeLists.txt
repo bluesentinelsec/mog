@@ -31,6 +31,19 @@ target_link_libraries(${PROJECT_NAME}_lib
     $<BUILD_INTERFACE:mbedcrypto>
 )
 
+# nlohmann/json — cppboot preferred JSON library. Header-only; enables mog/json.hpp
+# and MOG_HAS_JSON for consumers of this build tree.
+if(MOG_WITH_JSON)
+  target_link_libraries(${PROJECT_NAME}_lib
+    PUBLIC
+      $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>
+  )
+  target_compile_definitions(${PROJECT_NAME}_lib
+    PUBLIC
+      $<BUILD_INTERFACE:MOG_HAS_JSON=1>
+  )
+endif()
+
 if(WIN32)
   target_link_libraries(${PROJECT_NAME}_lib PRIVATE $<BUILD_INTERFACE:ws2_32>)
 endif()
