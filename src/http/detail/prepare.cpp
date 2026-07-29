@@ -125,12 +125,18 @@ PreparedRequest PrepareRequest(const Options &options)
         out.headers["User-Agent"] = options.user_agent;
     }
 
+    if (options.decompress && !HasHeader(out.headers, "Accept-Encoding"))
+    {
+        out.headers["Accept-Encoding"] = "gzip, deflate";
+    }
+
     if (options.proxy.has_value())
     {
         MOG_LOG_DEBUG("prepare: proxy={}", *options.proxy);
     }
-    MOG_LOG_DEBUG("prepare: headers={} timeout={}ms verify_tls={}", out.headers.size(),
-                  options.timeout.count(), options.verify_tls);
+    MOG_LOG_DEBUG("prepare: headers={} timeout={}ms verify_tls={} decompress={}",
+                  out.headers.size(), options.timeout.count(), options.verify_tls,
+                  options.decompress);
 
     return out;
 }

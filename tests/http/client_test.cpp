@@ -11,6 +11,7 @@
 #include <cstring>
 #include <gtest/gtest.h>
 #include <map>
+#include <miniz.h>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -401,6 +402,45 @@ class LocalHttpServer
 
 } // namespace
 
+std::string MakeGzipBody(std::string_view plain)
+{
+    mz_stream stream{};
+    EXPECT_EQ(mz_deflateInit2(&stream, MZ_DEFAULT_COMPRESSION, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS,
+                              8, MZ_DEFAULT_STRATEGY),
+              MZ_OK);
+    stream.next_in = reinterpret_cast<const unsigned char *>(plain.data());
+    stream.avail_in = static_cast<unsigned int>(plain.size());
+    std::string deflated(plain.size() + 64, '\0');
+    stream.next_out = reinterpret_cast<unsigned char *>(deflated.data());
+    stream.avail_out = static_cast<unsigned int>(deflated.size());
+    EXPECT_EQ(mz_deflate(&stream, MZ_FINISH), MZ_STREAM_END);
+    deflated.resize(static_cast<std::size_t>(stream.total_out));
+    mz_deflateEnd(&stream);
+
+    std::string out;
+    out.push_back(static_cast<char>(0x1f));
+    out.push_back(static_cast<char>(0x8b));
+    out.push_back(8);
+    out.push_back(0);
+    out.append(4, '\0');
+    out.push_back(0);
+    out.push_back(static_cast<char>(255));
+    out.append(deflated);
+    const mz_ulong crc =
+        mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char *>(plain.data()),
+                 static_cast<size_t>(plain.size()));
+    const auto isize = static_cast<std::uint32_t>(plain.size());
+    for (int i = 0; i < 4; ++i)
+    {
+        out.push_back(static_cast<char>((crc >> (8 * i)) & 0xffU));
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        out.push_back(static_cast<char>((isize >> (8 * i)) & 0xffU));
+    }
+    return out;
+}
+
 TEST(ClientTest, GetOk)
 {
     LocalHttpServer server;
@@ -415,6 +455,46 @@ TEST(ClientTest, GetOk)
     EXPECT_GE(r->elapsed.count(), 0);
     EXPECT_EQ(server.Last().method, "GET");
     EXPECT_EQ(server.Last().target, "/path");
+}
+
+TEST(ClientTest, GzipBodyIsDecoded)
+{
+    LocalHttpServer server;
+    const std::string plain = "hello compressed world";
+    server.SetResponse(200, MakeGzipBody(plain),
+                       {{"Content-Encoding", "gzip"}, {"Content-Type", "text/plain"}});
+
+    auto r = mog::get(server.origin() + "/gz");
+    ASSERT_TRUE(r) << r.error().to_string();
+    EXPECT_EQ(r->text(), plain);
+    EXPECT_TRUE(r->header("Content-Encoding").empty());
+    EXPECT_EQ(r->header("Content-Type"), "text/plain");
+
+    bool saw_accept = false;
+    for (const auto &h : server.Last().headers)
+    {
+        if (h.first == "Accept-Encoding" || h.first == "accept-encoding")
+        {
+            EXPECT_NE(h.second.find("gzip"), std::string::npos);
+            saw_accept = true;
+        }
+    }
+    EXPECT_TRUE(saw_accept);
+}
+
+TEST(ClientTest, DecompressCanBeDisabled)
+{
+    LocalHttpServer server;
+    const std::string plain = "raw-bytes";
+    const std::string gz = MakeGzipBody(plain);
+    server.SetResponse(200, gz, {{"Content-Encoding", "gzip"}});
+
+    mog::Options opt;
+    opt.decompress = false;
+    auto r = mog::get(server.origin() + "/gz", opt);
+    ASSERT_TRUE(r) << r.error().to_string();
+    EXPECT_EQ(r->body, gz);
+    EXPECT_EQ(r->header("Content-Encoding"), "gzip");
 }
 
 TEST(ClientTest, PostJson)

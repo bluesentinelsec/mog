@@ -3,6 +3,7 @@ set(MOG_HTTP_TEST_SOURCES
   backend_test.cpp
   client_test.cpp
   transport_test.cpp
+  content_encoding_test.cpp
 )
 if(MOG_WITH_JSON)
   list(APPEND MOG_HTTP_TEST_SOURCES json_test.cpp)
@@ -24,5 +25,7 @@ target_include_directories(mog_http_test
 if(WIN32)
   target_link_libraries(mog_http_test PRIVATE ws2_32)
 endif()
+# miniz is PRIVATE on the static lib; tests that call miniz helpers need the link.
+target_link_libraries(mog_http_test PRIVATE miniz)
 cppboot_set_project_warnings(mog_http_test)
 gtest_discover_tests(mog_http_test)

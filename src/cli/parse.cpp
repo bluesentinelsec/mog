@@ -4,7 +4,6 @@
  */
 
 #include "mog/cli.hpp"
-
 #include "mog/version.hpp"
 
 #if defined(MOG_HAS_CLI11) && MOG_HAS_CLI11
@@ -53,6 +52,8 @@ void AddCommonOptions(CLI::App *app, Args &cli)
     app->add_flag("-G,--get", cli.get_with_data, "Send -d data as query string on GET");
     app->add_flag("-s,--silent", cli.silent, "Silent mode (log level off; body still printed)");
     app->add_flag("-S,--show-error", cli.show_error, "Show errors even with --silent");
+    app->add_flag("--no-decompress", cli.no_decompress,
+                  "Do not advertise or decode Content-Encoding gzip/deflate");
 }
 
 void BuildApp(CLI::App &app, Args &cli)

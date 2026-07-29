@@ -25,8 +25,8 @@ Result<Response> request(Method method, std::string_view url, const Options &opt
         // Auto should have resolved; treat unknown as internal.
         MOG_LOG_ERROR("no transport registered for backend {}", ToString(backend));
         return Result<Response>::Err(
-            Error{ErrorCode::Internal, std::string("no transport for backend ") +
-                                           std::string{ToString(backend)}});
+            Error{ErrorCode::Internal,
+                  std::string("no transport for backend ") + std::string{ToString(backend)}});
     }
 
     auto result = transport->Execute(method, url, options);

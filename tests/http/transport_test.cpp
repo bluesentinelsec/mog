@@ -8,7 +8,6 @@
 #include "mog/options.hpp"
 
 #include <gtest/gtest.h>
-
 #include <memory>
 
 namespace
@@ -80,11 +79,11 @@ TEST(TransportRegistry, CanReplaceWithCustomTransport)
             return "curl";
         }
         mog::Result<mog::Response> Execute(mog::Method, std::string_view,
-                                          const mog::Options &) override
+                                           const mog::Options &) override
         {
-            return mog::Result<mog::Response>::Err(mog::Error{
-                mog::ErrorCode::UnsupportedBackend,
-                "backend 'curl' is not implemented yet; use embedded (default)"});
+            return mog::Result<mog::Response>::Err(
+                mog::Error{mog::ErrorCode::UnsupportedBackend,
+                           "backend 'curl' is not implemented yet; use embedded (default)"});
         }
     };
     mog::detail::RegisterTransport(mog::Backend::Curl, std::make_unique<Unimpl>());

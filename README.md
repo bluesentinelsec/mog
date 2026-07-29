@@ -41,13 +41,14 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | Timeouts (I/O + connect) | yes | `--timeout`, `--connect-timeout` |
 | TLS verify / CA bundle | yes | `-k`, `--cacert` |
 | HTTP proxy (+ HTTPS CONNECT) | `Options::proxy` | `-x` |
-| Response size limit | `max_response_bytes` | (library) |
+| Response size limit | `max_response_bytes` (decoded when decompressing) | (library) |
+| Disable decompress | `Options::decompress = false` | `--no-decompress` |
 | Thread-safe free functions + Session | yes | n/a |
 | Backend override | CLI / env / Options | `--backend`, `MOG_BACKEND` |
 | curl / WinHTTP / NSURLSession backends | planned | planned |
 | Multipart file upload | not yet | not yet |
 | HTTP/2, WebSocket, cookie domain/path | not yet | not yet |
-| Content-Encoding gzip | not yet (identity) | not yet |
+| Content-Encoding gzip/deflate | yes (miniz, static) | `--no-decompress` to disable |
 | HTTP server | deferred | deferred |
 
 ---
@@ -132,7 +133,8 @@ int main() {
 | `ca_bundle` | PEM path (else `SSL_CERT_FILE` / system paths) |
 | `allow_redirects` / `max_redirects` | Redirect policy |
 | `proxy` | `http://host:port` |
-| `max_response_bytes` | Body size cap (default 64 MiB) |
+| `max_response_bytes` | Body size cap (default 64 MiB; decoded size when decompressing) |
+| `decompress` | Decode Content-Encoding gzip/deflate (default true) |
 | `backend` | Optional backend override |
 | `user_agent` | Default User-Agent if not set |
 
@@ -266,7 +268,7 @@ include/mog/              Public API (http, session, options, cli, log, json, �
 src/main.cpp              Thin shell → mog::cli::RunArgv only
 src/cli/                  parse | prepare | run | output (SRP)
 src/http/                 HTTP API + transport registry
-src/http/detail/          Embedded stack, sockets, TLS, URL
+src/http/detail/          Embedded stack, sockets, TLS, URL, content encoding
 tests/cli/ tests/http/    Unit tests by component
 ```
 
@@ -282,4 +284,6 @@ Bootstrapped with [cppboot](https://github.com/bluesentinelsec/cppboot).
 
 MIT — see [LICENSE](LICENSE).
 
-mbedTLS is fetched at build time under its own license (Apache-2.0).
+**FetchContent (static) dependencies of note:** mbedTLS (Apache-2.0) for TLS;
+[miniz](https://github.com/richgel999/miniz) (MIT) for gzip/deflate Content-Encoding.
+Neither requires a system shared library at runtime.

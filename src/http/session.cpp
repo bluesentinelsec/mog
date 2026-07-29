@@ -179,6 +179,10 @@ Options Session::merge_options(const Options &per_request) const
     {
         merged.update_cookies = per_request.update_cookies;
     }
+    if (per_request.decompress != virgin.decompress)
+    {
+        merged.decompress = per_request.decompress;
+    }
 
     return merged;
 }

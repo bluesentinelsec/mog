@@ -3,9 +3,8 @@
  * @brief CLI use-case orchestration: log config → prepare → request → output.
  */
 
-#include "mog/cli.hpp"
-
 #include "mog/backend.hpp"
+#include "mog/cli.hpp"
 #include "mog/http.hpp"
 #include "mog/log.hpp"
 

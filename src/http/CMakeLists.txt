@@ -13,6 +13,7 @@ target_sources(${PROJECT_NAME}_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/socket.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/prepare.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/detail/content_encoding.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/embedded_backend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/registry.cpp
 )
@@ -31,6 +32,7 @@ target_link_libraries(${PROJECT_NAME}_lib
     $<BUILD_INTERFACE:mbedtls>
     $<BUILD_INTERFACE:mbedx509>
     $<BUILD_INTERFACE:mbedcrypto>
+    $<BUILD_INTERFACE:miniz>
 )
 
 # nlohmann/json — cppboot preferred JSON library. Header-only; enables mog/json.hpp

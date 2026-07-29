@@ -34,6 +34,7 @@ enum class ErrorCode
     ProxyError,
     FileError,
     JsonError,
+    CompressionError,
     Internal,
 };
 

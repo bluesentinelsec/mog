@@ -181,6 +181,15 @@ TEST(CliPrepare, InsecureDisablesTlsVerify)
     EXPECT_FALSE(p.options.verify_tls);
 }
 
+TEST(CliPrepare, NoDecompressFlag)
+{
+    mog::cli::Args a;
+    a.url = "https://example.com/";
+    EXPECT_TRUE(MustPrepare(a).options.decompress);
+    a.no_decompress = true;
+    EXPECT_FALSE(MustPrepare(a).options.decompress);
+}
+
 TEST(CliPrepare, NoLocationDisablesRedirects)
 {
     mog::cli::Args a;

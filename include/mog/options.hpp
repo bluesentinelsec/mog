@@ -124,10 +124,20 @@ struct Options
     std::optional<std::string> proxy;
 
     /// Hard cap on response body size (bytes). 0 = unlimited.
+    /// When @ref decompress is true, the limit applies to the **decoded** body size.
     std::size_t max_response_bytes = 64ULL * 1024ULL * 1024ULL;
 
     /// When true, Session updates its cookie jar from Set-Cookie (library default true on Session).
     bool update_cookies = true;
+
+    /**
+     * @brief When true, advertise gzip/deflate and decode Content-Encoding on responses.
+     *
+     * Adds @c Accept-Encoding: gzip, deflate unless the caller already set that header.
+     * Decoded body is exposed in @c Response::body; Content-Encoding / Content-Length
+     * are adjusted accordingly. Unknown encodings fail with @c CompressionError.
+     */
+    bool decompress = true;
 };
 
 // ---------------------------------------------------------------------------
