@@ -1,0 +1,10 @@
+add_executable(mog_version_bench
+  version_bench.cpp
+)
+target_link_libraries(mog_version_bench
+  PRIVATE
+    ${PROJECT_NAME}_lib
+    benchmark::benchmark
+    benchmark::benchmark_main
+)
+cppboot_set_project_warnings(mog_version_bench)

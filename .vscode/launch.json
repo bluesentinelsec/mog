@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug mog",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/bin/mog",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build Debug"
+    },
+    {
+      "name": "Debug mog (Windows)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/bin/mog.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build Debug",
+      "console": "integratedTerminal"
+    }
+  ]
+}
