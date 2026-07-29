@@ -35,6 +35,8 @@ enum class ErrorCode
     FileError,
     JsonError,
     CompressionError,
+    /// Failed to load a shared library or resolve a symbol (dlopen/LoadLibrary).
+    DynamicLibraryError,
     Internal,
 };
 

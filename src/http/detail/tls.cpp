@@ -5,6 +5,9 @@
 
 #include "http/detail/tls.hpp"
 
+#include "http/detail/ca_store.hpp"
+#include "mog/log.hpp"
+
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -28,18 +31,6 @@ std::string MbedError(int err)
     std::array<char, 256> buf{};
     mbedtls_strerror(err, buf.data(), buf.size());
     return std::string{buf.data()};
-}
-
-std::vector<std::string> DefaultCaPaths()
-{
-    return {
-        "/etc/ssl/cert.pem",                    // macOS
-        "/etc/ssl/certs/ca-certificates.crt",   // Debian/Ubuntu/etc
-        "/etc/pki/tls/certs/ca-bundle.crt",     // RHEL/Fedora
-        "/etc/ssl/ca-bundle.pem",               // OpenSUSE
-        "/usr/local/etc/openssl/cert.pem",      // Homebrew OpenSSL
-        "/opt/homebrew/etc/openssl@3/cert.pem", // Homebrew Apple Silicon
-    };
 }
 
 struct BioContext
@@ -165,35 +156,14 @@ Result<void> TlsSession::Handshake(TcpSocket &socket, std::string_view hostname,
     if (verify)
     {
         mbedtls_ssl_conf_authmode(&impl_->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-        bool loaded = false;
-        if (ca_bundle.has_value())
+        // Trust resolution: CLI/Options → env → system → embedded Mozilla → fail loud.
+        auto ca = LoadCaCertificates(&impl_->cacert, ca_bundle);
+        if (!ca)
         {
-            ret = mbedtls_x509_crt_parse_file(&impl_->cacert, ca_bundle->c_str());
-            if (ret < 0)
-            {
-                return Result<void>::Err(
-                    Error{ErrorCode::TlsFailed, "failed to load CA bundle: " + MbedError(ret)});
-            }
-            loaded = true;
+            return Result<void>::Err(ca.error());
         }
-        else
-        {
-            for (const auto &path : DefaultCaPaths())
-            {
-                ret = mbedtls_x509_crt_parse_file(&impl_->cacert, path.c_str());
-                if (ret >= 0)
-                {
-                    loaded = true;
-                    break;
-                }
-            }
-        }
-        if (!loaded)
-        {
-            return Result<void>::Err(Error{ErrorCode::TlsFailed,
-                                           "no CA certificates found; set Options::ca_bundle or "
-                                           "SSL_CERT_FILE, or disable verify"});
-        }
+        MOG_LOG_DEBUG("tls: CA trust source={} detail={} certs={}", ca->source, ca->detail,
+                      ca->cert_count);
         mbedtls_ssl_conf_ca_chain(&impl_->conf, &impl_->cacert, nullptr);
     }
     else

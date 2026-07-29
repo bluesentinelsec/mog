@@ -52,6 +52,8 @@ std::string_view ErrorCodeName(ErrorCode code) noexcept
         return "json_error";
     case ErrorCode::CompressionError:
         return "compression_error";
+    case ErrorCode::DynamicLibraryError:
+        return "dynamic_library_error";
     case ErrorCode::Internal:
         return "internal";
     }

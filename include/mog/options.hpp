@@ -97,7 +97,13 @@ struct Options
     /// Verify TLS certificates (HTTPS). Set false only for debugging.
     bool verify_tls = true;
 
-    /// Optional path to a PEM CA bundle (overrides default discovery).
+    /**
+     * @brief Optional path to a PEM CA bundle (highest precedence for TLS trust).
+     *
+     * When set (CLI @c --cacert), only this file is used. When unset, discovery is:
+     * environment (@c MOG_CA_BUNDLE / @c SSL_CERT_FILE / …) → system trust store →
+     * embedded Mozilla roots → clear error. See README “TLS trust”.
+     */
     std::optional<std::string> ca_bundle;
 
     /// Follow 3xx responses with a Location header.
