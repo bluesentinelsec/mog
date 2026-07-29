@@ -5,6 +5,7 @@
 
 #include "http/detail/prepare.hpp"
 
+#include "mog/log.hpp"
 #include "mog/util.hpp"
 
 #include <cctype>
@@ -69,6 +70,7 @@ PreparedRequest PrepareRequest(const Options &options)
         {
             out.headers["Content-Type"] = "application/json";
         }
+        MOG_LOG_DEBUG("prepare: json body ({} bytes)", out.body.size());
     }
     else if (!options.form.empty())
     {
@@ -77,13 +79,19 @@ PreparedRequest PrepareRequest(const Options &options)
         {
             out.headers["Content-Type"] = "application/x-www-form-urlencoded";
         }
+        MOG_LOG_DEBUG("prepare: form body ({} fields, {} bytes)", options.form.size(),
+                      out.body.size());
     }
     else
     {
         out.body = options.body;
+        if (!out.body.empty())
+        {
+            MOG_LOG_DEBUG("prepare: raw body ({} bytes)", out.body.size());
+        }
     }
 
-    // Auth
+    // Auth (never log secrets)
     if (options.auth.kind == Auth::Kind::Basic)
     {
         if (!HasHeader(out.headers, "Authorization"))
@@ -92,6 +100,7 @@ PreparedRequest PrepareRequest(const Options &options)
                 Base64Encode(options.auth.username + ":" + options.auth.password);
             out.headers["Authorization"] = "Basic " + token;
         }
+        MOG_LOG_DEBUG("prepare: basic auth (user={})", options.auth.username);
     }
     else if (options.auth.kind == Auth::Kind::Bearer)
     {
@@ -99,12 +108,14 @@ PreparedRequest PrepareRequest(const Options &options)
         {
             out.headers["Authorization"] = "Bearer " + options.auth.token;
         }
+        MOG_LOG_DEBUG("prepare: bearer auth (token set)");
     }
 
     // Cookies
     if (!options.cookies.empty() && !HasHeader(out.headers, "Cookie"))
     {
         out.headers["Cookie"] = EncodeCookieHeader(options.cookies);
+        MOG_LOG_DEBUG("prepare: {} cookie(s)", options.cookies.size());
     }
 
     // User-Agent default applied later in request builder if still missing;
@@ -113,6 +124,13 @@ PreparedRequest PrepareRequest(const Options &options)
     {
         out.headers["User-Agent"] = options.user_agent;
     }
+
+    if (options.proxy.has_value())
+    {
+        MOG_LOG_DEBUG("prepare: proxy={}", *options.proxy);
+    }
+    MOG_LOG_DEBUG("prepare: headers={} timeout={}ms verify_tls={}", out.headers.size(),
+                  options.timeout.count(), options.verify_tls);
 
     return out;
 }

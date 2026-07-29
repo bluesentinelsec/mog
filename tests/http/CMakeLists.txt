@@ -6,6 +6,9 @@ set(MOG_HTTP_TEST_SOURCES
 if(MOG_WITH_JSON)
   list(APPEND MOG_HTTP_TEST_SOURCES json_test.cpp)
 endif()
+if(MOG_WITH_SPDLOG)
+  list(APPEND MOG_HTTP_TEST_SOURCES log_test.cpp)
+endif()
 
 add_executable(mog_http_test ${MOG_HTTP_TEST_SOURCES})
 target_link_libraries(mog_http_test

@@ -48,6 +48,7 @@ struct CliOptions
     bool silent = false;
     bool show_error = false;
     std::string write_out;
+    std::string log_level; // optional explicit override
 };
 
 mog::Result<std::string> LoadDataArg(const std::string &data)
@@ -59,8 +60,40 @@ mog::Result<std::string> LoadDataArg(const std::string &data)
     return mog::Result<std::string>::Ok(data);
 }
 
+/**
+ * @brief Install the same default spdlog logger the library uses.
+ *
+ * Level selection: --log-level > -v (debug) > -s (off) > info.
+ */
+void ConfigureLogging(const CliOptions &cli)
+{
+    mog::LogLevel level = mog::LogLevel::Info;
+    if (!cli.log_level.empty())
+    {
+        if (!mog::ParseLogLevel(cli.log_level, level))
+        {
+            std::cerr << "mog: unknown log level '" << cli.log_level
+                      << "' (trace|debug|info|warn|error|critical|off)\n";
+            level = mog::LogLevel::Info;
+        }
+    }
+    else if (cli.silent)
+    {
+        level = mog::LogLevel::Off;
+    }
+    else if (cli.verbose)
+    {
+        level = mog::LogLevel::Debug;
+    }
+
+    mog::UseDefaultLogger(level);
+    MOG_LOG_DEBUG("cli: logging configured level={}", mog::ToString(level));
+}
+
 int Run(const CliOptions &cli)
 {
+    ConfigureLogging(cli);
+
     mog::Options options;
     options.timeout = std::chrono::milliseconds{static_cast<int>(cli.timeout_sec * 1000.0)};
     if (cli.connect_timeout_sec >= 0.0)
@@ -77,8 +110,8 @@ int Run(const CliOptions &cli)
         auto parsed = mog::ParseBackend(cli.backend);
         if (!parsed)
         {
-            std::cerr << "mog: unknown backend '" << cli.backend
-                      << "' (expected auto|embedded|curl|winhttp|native)\n";
+            MOG_LOG_ERROR("unknown backend '{}' (expected auto|embedded|curl|winhttp|native)",
+                          cli.backend);
             return 2;
         }
         options.backend = *parsed;
@@ -152,7 +185,7 @@ int Run(const CliOptions &cli)
         const auto colon = h.find(':');
         if (colon == std::string::npos)
         {
-            std::cerr << "mog: invalid header (expected Name: value): " << h << '\n';
+            MOG_LOG_ERROR("invalid header (expected Name: value): {}", h);
             return 2;
         }
         std::string name = h.substr(0, colon);
@@ -169,7 +202,7 @@ int Run(const CliOptions &cli)
         auto loaded = LoadDataArg(cli.json);
         if (!loaded)
         {
-            std::cerr << "mog: " << loaded.error().to_string() << '\n';
+            MOG_LOG_ERROR("{}", loaded.error().to_string());
             return 1;
         }
         options.json = std::move(*loaded);
@@ -181,7 +214,7 @@ int Run(const CliOptions &cli)
             const auto eq = f.find('=');
             if (eq == std::string::npos)
             {
-                std::cerr << "mog: invalid form field (expected name=value): " << f << '\n';
+                MOG_LOG_ERROR("invalid form field (expected name=value): {}", f);
                 return 2;
             }
             options.form[f.substr(0, eq)] = f.substr(eq + 1);
@@ -192,7 +225,7 @@ int Run(const CliOptions &cli)
         auto loaded = LoadDataArg(cli.data);
         if (!loaded)
         {
-            std::cerr << "mog: " << loaded.error().to_string() << '\n';
+            MOG_LOG_ERROR("{}", loaded.error().to_string());
             return 1;
         }
         if (cli.get_with_data)
@@ -244,37 +277,38 @@ int Run(const CliOptions &cli)
     auto method = mog::ParseMethod(method_text);
     if (!method)
     {
-        std::cerr << "mog: unknown method '" << method_text << "'\n";
+        MOG_LOG_ERROR("unknown method '{}'", method_text);
         return 2;
     }
 
-    if (cli.verbose && !cli.silent)
-    {
-        const auto backend = mog::ResolveBackend(options.backend);
-        std::cerr << "* backend: " << mog::ToString(backend) << '\n';
-        std::cerr << "> " << mog::ToString(*method) << ' ' << cli.url << '\n';
-    }
+    const auto backend = mog::ResolveBackend(options.backend);
+    MOG_LOG_INFO("cli: {} {} backend={}", mog::ToString(*method), cli.url, mog::ToString(backend));
 
     auto result = mog::request(*method, cli.url, options);
     if (!result)
     {
+        // Always surface transport failures unless fully silent without -S.
         if (!cli.silent || cli.show_error)
         {
-            std::cerr << "mog: " << result.error().to_string() << '\n';
+            MOG_LOG_ERROR("{}", result.error().to_string());
+            if (cli.silent && cli.show_error)
+            {
+                // Level may be Off; also print for curl -S compatibility.
+                std::cerr << "mog: " << result.error().to_string() << '\n';
+            }
         }
         return 1;
     }
 
     const mog::Response &response = *result;
-    if (cli.verbose && !cli.silent)
+    MOG_LOG_INFO("cli: HTTP {} {} ({} bytes, {} ms, backend={})", response.status_code,
+                 response.reason, response.body.size(), response.elapsed.count(), response.backend);
+    if (cli.verbose)
     {
-        std::cerr << "< HTTP " << response.status_code << ' ' << response.reason << '\n';
         for (const auto &h : response.headers)
         {
-            std::cerr << "< " << h.name << ": " << h.value << '\n';
+            MOG_LOG_DEBUG("cli: < {}: {}", h.name, h.value);
         }
-        std::cerr << "* backend used: " << response.backend << '\n';
-        std::cerr << "* elapsed: " << response.elapsed.count() << " ms\n";
     }
 
     if (!cli.dump_header.empty())
@@ -282,7 +316,7 @@ int Run(const CliOptions &cli)
         std::ofstream hdr(cli.dump_header, std::ios::binary);
         if (!hdr)
         {
-            std::cerr << "mog: failed to open header dump file: " << cli.dump_header << '\n';
+            MOG_LOG_ERROR("failed to open header dump file: {}", cli.dump_header);
             return 1;
         }
         hdr << "HTTP/1.1 " << response.status_code << ' ' << response.reason << "\r\n";
@@ -300,7 +334,7 @@ int Run(const CliOptions &cli)
         file.open(cli.output, std::ios::binary);
         if (!file)
         {
-            std::cerr << "mog: failed to open output file: " << cli.output << '\n';
+            MOG_LOG_ERROR("failed to open output file: {}", cli.output);
             return 1;
         }
         out = &file;
@@ -380,13 +414,16 @@ void AddCommon(CLI::App *app, CliOptions &cli)
                     "Format string: %{http_code} %{url_effective} %{time_total} "
                     "%{size_download} %{num_redirects}");
     app->add_flag("-k,--insecure", cli.insecure, "Disable TLS certificate verification");
-    app->add_flag("-v,--verbose", cli.verbose, "Verbose progress on stderr");
+    app->add_flag("-v,--verbose", cli.verbose, "Debug logging (spdlog level=debug)");
+    app->add_option("--log-level", cli.log_level,
+                    "Log level: trace|debug|info|warn|error|critical|off "
+                    "(overrides -v/-s; default info)");
     app->add_flag("-i,--include", cli.include_headers, "Include response headers in output");
     app->add_flag("-f,--fail", cli.fail_on_error, "Exit non-zero on HTTP 4xx/5xx");
     // Redirects are followed by default (curl -L style).
     app->add_flag("--no-location", cli.no_location, "Do not follow redirects");
     app->add_flag("-G,--get", cli.get_with_data, "Send -d data as query string on GET");
-    app->add_flag("-s,--silent", cli.silent, "Silent mode (no progress)");
+    app->add_flag("-s,--silent", cli.silent, "Silent mode (log level off; body still printed)");
     app->add_flag("-S,--show-error", cli.show_error, "Show errors even with --silent");
 }
 
@@ -422,6 +459,7 @@ int main(int argc, char **argv)
 
     if (cli.url.empty())
     {
+        // Logging not configured yet; use stderr for parse-time errors.
         std::cerr << "mog: URL required (try: mog get https://example.com)\n";
         return 2;
     }

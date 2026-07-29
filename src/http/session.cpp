@@ -5,6 +5,7 @@
 
 #include "mog/session.hpp"
 
+#include "mog/log.hpp"
 #include "mog/version.hpp"
 
 namespace mog
@@ -217,6 +218,8 @@ Result<Response> Session::request(Method method, std::string_view url, const Opt
         std::lock_guard lock(mutex_);
         merged = merge_options(options);
         full_url = resolve_url(url);
+        MOG_LOG_DEBUG("session: {} {} (jar={} cookies, base={})", ToString(method), full_url,
+                      cookie_jar_.size(), base_url_);
     }
 
     auto result = mog::request(method, full_url, merged);
@@ -232,6 +235,8 @@ Result<Response> Session::request(Method method, std::string_view url, const Opt
         {
             cookie_jar_[c.first] = c.second;
         }
+        MOG_LOG_DEBUG("session: stored {} cookie(s) from response (jar size now {})",
+                      result->cookies.size(), cookie_jar_.size());
     }
     return result;
 }

@@ -164,6 +164,35 @@ auto doc = mog::ParseJson(*res);  // Result<nlohmann::json>
 String overloads remain for CLI and callers that already have serialized JSON.
 Disable with `-DMOG_WITH_JSON=OFF` if you embed mog without JSON.
 
+### Logging (spdlog)
+
+cppboot ships **spdlog** (`MOG_WITH_SPDLOG`, default ON; required for the CLI).
+Library and CLI share one process-wide logger.
+
+```cpp
+#include <mog/mog.hpp>
+
+// Same default stderr-colored logger the CLI uses:
+mog::UseDefaultLogger(mog::LogLevel::Debug);
+
+// Or inject your own spdlog logger:
+// mog::SetLogger(my_spdlog_logger);
+
+auto r = mog::get("https://example.com");
+// → info/debug lines for request, connect, TLS, redirects, response summary
+```
+
+| API | Role |
+|-----|------|
+| `UseDefaultLogger(level)` | Install mog’s stderr color logger |
+| `MakeDefaultLogger(level)` | Create without installing |
+| `SetLogger(ptr)` | Inject a custom `std::shared_ptr<spdlog::logger>` |
+| `GetLogger()` | Active logger (lazy-creates default at Warn) |
+| `SetLogLevel` / `GetLogLevel` | Change level on the active logger |
+| `MOG_LOG_DEBUG` / `INFO` / … | Macros used inside the library |
+
+CLI flags: `-v` (debug), `-s` (off), `--log-level trace|debug|info|…`.
+
 ### `Response`
 
 | Member / method | Purpose |
@@ -217,8 +246,9 @@ mog [options] URL
 | `-D FILE` | Dump response headers to file |
 | `-i` | Include headers in body output |
 | `-f` | Fail on HTTP 4xx/5xx (exit 22) |
-| `-v` | Verbose |
-| `-s` / `-S` | Silent / show errors with silent |
+| `-v` | Debug logging (spdlog) |
+| `--log-level LEVEL` | Explicit log level (overrides `-v`/`-s`) |
+| `-s` / `-S` | Silent logs / show errors with silent |
 | `-G` | With `-d`, append data as query string |
 | `-w FORMAT` | `%{http_code}` `%{url_effective}` `%{time_total}` `%{size_download}` `%{num_redirects}` |
 | `--backend NAME` | Backend override |

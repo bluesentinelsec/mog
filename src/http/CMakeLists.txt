@@ -8,6 +8,7 @@ target_sources(${PROJECT_NAME}_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/http.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/log.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/url.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/socket.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls.cpp
@@ -41,6 +42,19 @@ if(MOG_WITH_JSON)
   target_compile_definitions(${PROJECT_NAME}_lib
     PUBLIC
       $<BUILD_INTERFACE:MOG_HAS_JSON=1>
+  )
+endif()
+
+# spdlog — cppboot preferred logging; static-link friendly. Enables mog/log.hpp
+# injection API and detailed request tracing in the library + CLI.
+if(MOG_WITH_SPDLOG)
+  target_link_libraries(${PROJECT_NAME}_lib
+    PUBLIC
+      $<BUILD_INTERFACE:spdlog::spdlog>
+  )
+  target_compile_definitions(${PROJECT_NAME}_lib
+    PUBLIC
+      $<BUILD_INTERFACE:MOG_HAS_SPDLOG=1>
   )
 endif()
 

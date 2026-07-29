@@ -28,9 +28,9 @@ in CMake) instead of inventing a parallel stack:
 | Need | Prefer | Notes |
 |------|--------|--------|
 | HTTP/S client | **mog** public API (`include/mog/`) | Default backend: embedded HTTP/1.1 + mbedTLS |
-| Parse CLI args | **CLI11** (`CLI11::CLI11`) | `#include <CLI/CLI.hpp>` |
+| Parse CLI args | **CLI11** (`CLI11::CLI11`) | `#include <CLI/CLI.hpp>` — required for the app |
 | Parse / emit JSON | **nlohmann/json** (`nlohmann_json::nlohmann_json`) | `#include <nlohmann/json.hpp>` or `mog/json.hpp` |
-| Console (and file) logging | **spdlog** (`spdlog::spdlog`) | `#include <spdlog/spdlog.h>` |
+| Console (and file) logging | **spdlog** (`spdlog::spdlog`) | `mog/log.hpp` — required for the app |
 
 HTTP implementation lives under `src/http/` (public surface in `include/mog/`).
 Backend selection: CLI `--backend` > env `MOG_BACKEND` > default `embedded`.
@@ -38,6 +38,12 @@ Backend selection: CLI `--backend` > env `MOG_BACKEND` > default `embedded`.
 When `MOG_WITH_JSON=ON` (default top-level), use `mog::WithJson(opt, nlohmann::json)`,
 `mog::post_json` / `put_json` / `patch_json`, and `mog::ParseJson` from `mog/json.hpp`
 (also included by `mog/mog.hpp`). Do not introduce a second JSON library.
+
+When `MOG_WITH_SPDLOG=ON` (default top-level; required for the CLI app):
+- Use `mog::UseDefaultLogger(level)` or `mog::SetLogger(your_spdlog_logger)`.
+- Library + CLI share the process-wide logger via `mog::GetLogger()`.
+- Prefer `MOG_LOG_INFO` / `MOG_LOG_DEBUG` (or `GetLogger()->info(...)`) — do not
+  introduce a second logging framework.
 
 They are linked `PUBLIC` on the project library when enabled. Options:
 

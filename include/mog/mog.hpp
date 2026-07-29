@@ -7,6 +7,7 @@
 #include "mog/backend.hpp"
 #include "mog/error.hpp"
 #include "mog/http.hpp"
+#include "mog/log.hpp"
 #include "mog/options.hpp"
 #include "mog/response.hpp"
 #include "mog/session.hpp"

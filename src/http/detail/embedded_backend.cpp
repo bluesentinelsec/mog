@@ -9,6 +9,7 @@
 #include "http/detail/prepare.hpp"
 #include "http/detail/stream.hpp"
 #include "http/detail/url.hpp"
+#include "mog/log.hpp"
 #include "mog/util.hpp"
 #include "mog/version.hpp"
 
@@ -581,21 +582,27 @@ Result<std::unique_ptr<Stream>> OpenStream(const Url &url, const Options &option
 
     if (!use_proxy)
     {
+        MOG_LOG_DEBUG("connect {}:{} (timeout={}ms, scheme={})", url.host, url.port,
+                      connect_timeout.count(), url.scheme);
         auto sock_result = TcpSocket::Connect(url.host, url.port, connect_timeout);
         if (!sock_result)
         {
+            MOG_LOG_WARN("connect failed: {}", sock_result.error().to_string());
             return Result<std::unique_ptr<Stream>>::Err(sock_result.error());
         }
         TcpSocket sock = std::move(*sock_result);
         if (url.scheme == "https")
         {
+            MOG_LOG_DEBUG("TLS handshake host={} verify={}", url.host, options.verify_tls);
             TlsSession tls;
             auto hs = tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options),
                                     io_timeout);
             if (!hs)
             {
+                MOG_LOG_WARN("TLS handshake failed: {}", hs.error().to_string());
                 return Result<std::unique_ptr<Stream>>::Err(hs.error());
             }
+            MOG_LOG_DEBUG("TLS handshake ok");
             return Result<std::unique_ptr<Stream>>::Ok(
                 std::make_unique<Stream>(std::move(sock), std::move(tls)));
         }
@@ -615,9 +622,12 @@ Result<std::unique_ptr<Stream>> OpenStream(const Url &url, const Options &option
                   "only http:// proxies are supported (got " + proxy_url->scheme + ")"});
     }
 
+    MOG_LOG_DEBUG("proxy connect {}:{} for origin {}:{}", proxy_url->host, proxy_url->port,
+                  url.host, url.port);
     auto sock_result = TcpSocket::Connect(proxy_url->host, proxy_url->port, connect_timeout);
     if (!sock_result)
     {
+        MOG_LOG_WARN("proxy connect failed: {}", sock_result.error().to_string());
         return Result<std::unique_ptr<Stream>>::Err(sock_result.error());
     }
     TcpSocket sock = std::move(*sock_result);
@@ -627,20 +637,25 @@ Result<std::unique_ptr<Stream>> OpenStream(const Url &url, const Options &option
         // CONNECT over plain TCP, then TLS handshake on the same socket.
         {
             Stream plain{std::move(sock)};
+            MOG_LOG_DEBUG("proxy CONNECT {}:{}", url.host, url.port);
             auto tunnel = HttpConnectTunnel(plain, url, io_timeout);
             if (!tunnel)
             {
+                MOG_LOG_WARN("proxy CONNECT failed: {}", tunnel.error().to_string());
                 return Result<std::unique_ptr<Stream>>::Err(tunnel.error());
             }
             sock = plain.ReleaseSocket();
         }
+        MOG_LOG_DEBUG("TLS handshake via proxy host={} verify={}", url.host, options.verify_tls);
         TlsSession tls;
         auto hs =
             tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options), io_timeout);
         if (!hs)
         {
+            MOG_LOG_WARN("TLS handshake failed: {}", hs.error().to_string());
             return Result<std::unique_ptr<Stream>>::Err(hs.error());
         }
+        MOG_LOG_DEBUG("TLS handshake ok (via proxy)");
         return Result<std::unique_ptr<Stream>>::Ok(
             std::make_unique<Stream>(std::move(sock), std::move(tls)));
     }
@@ -664,16 +679,24 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
     int redirects = 0;
     std::vector<std::string> history;
 
+    MOG_LOG_DEBUG("embedded: start {} {} body={}B connect_timeout={}ms io_timeout={}ms",
+                  ToString(method), current_url, body.size(), connect_timeout.count(),
+                  io_timeout.count());
+
     for (;;)
     {
         auto parsed = ParseUrl(current_url);
         if (!parsed)
         {
+            MOG_LOG_WARN("embedded: invalid url {}: {}", current_url, parsed.error().to_string());
             return Result<Response>::Err(parsed.error());
         }
         const Url url = *parsed;
         const bool use_proxy = options.proxy.has_value() && !options.proxy->empty();
         const bool absolute_form = use_proxy && url.scheme == "http";
+
+        MOG_LOG_DEBUG("embedded: exchange {} {}://{}:{}{}", ToString(current_method), url.scheme,
+                      url.host, url.port, url.path);
 
         auto stream_result = OpenStream(url, options, connect_timeout, io_timeout);
         if (!stream_result)
@@ -690,9 +713,12 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
 
         const std::string message =
             BuildRequestMessage(current_method, url, headers, body, absolute_form);
+        MOG_LOG_DEBUG("embedded: send request ({} bytes, absolute_form={})", message.size(),
+                      absolute_form);
         auto wr = stream.WriteString(message, io_timeout);
         if (!wr)
         {
+            MOG_LOG_WARN("embedded: write failed: {}", wr.error().to_string());
             return Result<Response>::Err(wr.error());
         }
 
@@ -700,8 +726,12 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
                                     options.max_response_bytes);
         if (!raw)
         {
+            MOG_LOG_WARN("embedded: read failed: {}", raw.error().to_string());
             return Result<Response>::Err(raw.error());
         }
+
+        MOG_LOG_DEBUG("embedded: status {} {} (body {} bytes)", raw->status, raw->reason,
+                      raw->body.size());
 
         if (options.allow_redirects && IsRedirect(raw->status))
         {
@@ -718,6 +748,7 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
             {
                 if (redirects >= options.max_redirects)
                 {
+                    MOG_LOG_WARN("embedded: too many redirects (max={})", options.max_redirects);
                     return Result<Response>::Err(Error{
                         ErrorCode::TooManyRedirects,
                         "exceeded max_redirects (" + std::to_string(options.max_redirects) + ")"});
@@ -725,6 +756,8 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
                 current_url = JoinUrl(current_url, location);
                 history.push_back(current_url);
                 current_method = MethodAfterRedirect(current_method, raw->status);
+                MOG_LOG_INFO("embedded: redirect {} → {} (method now {})", raw->status, current_url,
+                             ToString(current_method));
                 if (current_method == Method::Get || current_method == Method::Head)
                 {
                     body.clear();
