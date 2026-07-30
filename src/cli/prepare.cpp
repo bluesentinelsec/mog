@@ -8,7 +8,10 @@
 #include "mog/util.hpp"
 
 #include <chrono>
+#include <filesystem>
 #include <map>
+#include <string>
+#include <vector>
 
 namespace mog::cli
 {
@@ -67,6 +70,81 @@ void ParseQueryString(std::string_view qs, std::map<std::string, std::string> &p
         }
         pos = amp + 1;
     }
+}
+
+// Split a string on the first occurrence of a delimiter char.
+std::vector<std::string> SplitOn(const std::string &s, char delim)
+{
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i <= s.size(); ++i)
+    {
+        if (i == s.size() || s[i] == delim)
+        {
+            parts.push_back(s.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    return parts;
+}
+
+// Parse one curl-style -F argument into a multipart FormPart.
+//   name=value                     text field
+//   name=@path[;type=..][;filename=..]   file upload (bytes read from disk)
+//   name=<path                     text field whose value is read from a file
+Result<FormPart> ParseFormArg(const std::string &arg)
+{
+    const auto eq = arg.find('=');
+    if (eq == std::string::npos || eq == 0)
+    {
+        return Result<FormPart>::Err(
+            Error{ErrorCode::InvalidArgument, "invalid form field (expected name=value): " + arg});
+    }
+    FormPart part;
+    part.name = arg.substr(0, eq);
+    const std::string rest = arg.substr(eq + 1);
+
+    if (!rest.empty() && (rest.front() == '@' || rest.front() == '<'))
+    {
+        const bool is_file = rest.front() == '@';
+        const auto segments = SplitOn(rest.substr(1), ';');
+        const std::string path = segments.empty() ? std::string{} : segments.front();
+        auto data = ReadFile(path);
+        if (!data)
+        {
+            return Result<FormPart>::Err(data.error());
+        }
+        part.value = std::move(*data);
+        if (is_file)
+        {
+            part.filename = std::filesystem::path(path).filename().string();
+            for (std::size_t i = 1; i < segments.size(); ++i)
+            {
+                const std::string &param = segments[i];
+                const auto peq = param.find('=');
+                if (peq == std::string::npos)
+                {
+                    continue;
+                }
+                const std::string key = param.substr(0, peq);
+                const std::string val = param.substr(peq + 1);
+                if (key == "type")
+                {
+                    part.content_type = val;
+                }
+                else if (key == "filename")
+                {
+                    part.filename = val;
+                }
+            }
+        }
+        // '<' yields a plain field (value from file), so leave filename unset.
+    }
+    else
+    {
+        part.value = rest;
+    }
+    return Result<FormPart>::Ok(std::move(part));
 }
 
 } // namespace
@@ -184,15 +262,16 @@ Result<Prepared> PrepareRequest(const Args &args)
     }
     else if (!args.form_fields.empty())
     {
+        // -F builds a multipart/form-data body (curl-compatible). This differs
+        // from mog's earlier -F, which produced urlencoded fields.
         for (const auto &f : args.form_fields)
         {
-            const auto eq = f.find('=');
-            if (eq == std::string::npos)
+            auto part = ParseFormArg(f);
+            if (!part)
             {
-                return Result<Prepared>::Err(Error{
-                    ErrorCode::InvalidArgument, "invalid form field (expected name=value): " + f});
+                return Result<Prepared>::Err(part.error());
             }
-            options.form[f.substr(0, eq)] = f.substr(eq + 1);
+            options.multipart.push_back(std::move(*part));
         }
     }
     else if (!args.data.empty())
@@ -217,7 +296,7 @@ Result<Prepared> PrepareRequest(const Args &args)
     {
         method_text = "HEAD";
     }
-    if ((options.json.has_value() || !options.form.empty() ||
+    if ((options.json.has_value() || !options.form.empty() || !options.multipart.empty() ||
          (!options.body.empty() && !args.get_with_data)) &&
         method_text == "GET" && !args.head)
     {

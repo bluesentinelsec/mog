@@ -31,7 +31,8 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | JSON body (string) | `WithJson` / `Options::json` | `--json` |
 | JSON body (nlohmann) | `WithJson(opt, json)` / `post_json` | via `--json` text |
 | Parse JSON response | `ParseJson(response)` | n/a |
-| Form body (urlencoded) | `WithForm` / `Options::form` | `-F name=value` |
+| Form body (urlencoded) | `WithForm` / `Options::form` | `-d 'a=1&b=2'` |
+| Multipart/form-data + file upload | `AddFormField` / `AddFormFile` | `-F name=value`, `-F f=@file` |
 | Raw body / file body | `Options::body` / `ReadFile` | `-d`, `-d @file` |
 | Basic auth | `WithBasicAuth` | `-u user:pass` |
 | Bearer token | `WithBearerToken` | `--bearer` |
@@ -48,7 +49,6 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | Thread-safe free functions + Session | yes | n/a |
 | Backend override | CLI / env / Options | `--backend`, `MOG_BACKEND` |
 | curl / WinHTTP / NSURLSession backends | planned | planned |
-| Multipart file upload | not yet | not yet |
 | Session cookie jar (domain/path/Secure) | yes | `-b` (per-request) |
 | HTTP/2, WebSocket | not yet | not yet |
 | Content-Encoding gzip/deflate | yes (miniz, static) | `--no-decompress` to disable |
@@ -127,6 +127,7 @@ int main() {
 | `body` | Raw body |
 | `json` | JSON body (+ `Content-Type: application/json`) |
 | `form` | urlencoded form fields |
+| `multipart` | multipart/form-data parts (`AddFormField` / `AddFormFile`) |
 | `params` | Query string parameters |
 | `cookies` | Cookie name → value |
 | `auth` | Basic or Bearer (`WithBasicAuth` / `WithBearerToken`) |
@@ -143,7 +144,30 @@ int main() {
 | `backend` | Optional backend override |
 | `user_agent` | Default User-Agent if not set |
 
-Body precedence: **`json` > `form` > `body`**.
+Body precedence: **`multipart` > `json` > `form` > `body`**.
+
+### Multipart / file uploads
+
+Build `multipart/form-data` requests with `Options::multipart` (or the helpers).
+When any part is present, mog sets `Content-Type: multipart/form-data` with a
+generated boundary and takes precedence over `json` / `form` / `body`.
+
+```cpp
+mog::Options opt;
+mog::AddFormField(opt, "user", "alice");
+mog::AddFormFile(opt, "avatar", "me.png", png_bytes, "image/png"); // from memory
+auto from_disk = mog::AddFormFileFromPath(opt, "report", "report.pdf"); // reads file
+if (!from_disk) { /* FileError */ }
+auto r = mog::post("https://example.com/upload", opt);
+```
+
+File parts always get a `Content-Type` (guessed from the filename when unset);
+the whole body is built in memory (streaming uploads are a non-goal).
+
+> **CLI breaking change:** `-F` now builds `multipart/form-data` (curl-compatible)
+> instead of urlencoded fields. `-F name=value` is a text field, `-F name=@path`
+> uploads a file (with optional `;type=` / `;filename=`), and `-F name=<path`
+> reads a field value from a file. For an urlencoded body use `-d 'a=1&b=2'`.
 
 ### Streaming downloads
 
@@ -296,7 +320,7 @@ mog [options] URL
 | `-H "Name: value"` | Header |
 | `-d DATA` | Body (`@file` reads a file) |
 | `--json DATA` | JSON body (`@file` ok); implies POST if method is GET |
-| `-F name=value` | Form field (urlencoded) |
+| `-F name=value` | multipart part; `name=@file[;type=..;filename=..]` uploads a file, `name=<file` reads a field value from a file |
 | `-u user:pass` | Basic auth |
 | `--bearer TOKEN` | Bearer auth |
 | `-A UA` | User-Agent |

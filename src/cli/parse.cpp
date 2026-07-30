@@ -22,7 +22,9 @@ void AddCommonOptions(CLI::App *app, Args &cli)
     app->add_option("-H,--header", cli.headers, "HTTP header (Name: value)")->type_size(1);
     app->add_option("-d,--data", cli.data, "Request body (prefix @ to read a file)");
     app->add_option("--json", cli.json, "JSON body; sets Content-Type (prefix @ for file)");
-    app->add_option("-F,--form", cli.form_fields, "Form field name=value (urlencoded)")
+    app->add_option("-F,--form", cli.form_fields,
+                    "multipart/form-data part: name=value, name=@file[;type=..;filename=..], "
+                    "or name=<file")
         ->type_size(1);
     app->add_option("-o,--output", cli.output, "Write body to file");
     app->add_option("-D,--dump-header", cli.dump_header, "Write response headers to file");

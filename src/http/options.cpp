@@ -5,10 +5,14 @@
 
 #include "mog/options.hpp"
 
+#include "mog/util.hpp"
+
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace mog
 {
@@ -103,6 +107,19 @@ Result<BodyWriter> FileWriter(const std::string &path)
         return Result<void>::Ok();
     };
     return Result<BodyWriter>::Ok(std::move(writer));
+}
+
+Result<void> AddFormFileFromPath(Options &opt, std::string name, const std::string &path,
+                                 std::string content_type)
+{
+    auto data = ReadFile(path);
+    if (!data)
+    {
+        return Result<void>::Err(data.error());
+    }
+    const std::string filename = std::filesystem::path(path).filename().string();
+    AddFormFile(opt, std::move(name), filename, std::move(*data), std::move(content_type));
+    return Result<void>::Ok();
 }
 
 } // namespace mog

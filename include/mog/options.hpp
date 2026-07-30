@@ -66,6 +66,20 @@ struct Auth
 };
 
 /**
+ * @brief One part of a multipart/form-data body: a text field or a file part.
+ *
+ * A part is a file part when @ref filename is set (its @ref value holds the file
+ * bytes); otherwise it is a plain text field (@ref value holds the text).
+ */
+struct FormPart
+{
+    std::string name;                    ///< Field name (Content-Disposition name=).
+    std::string value;                   ///< Text value, or file bytes when @ref filename is set.
+    std::optional<std::string> filename; ///< Set => file part (adds filename= and a Content-Type).
+    std::string content_type; ///< Optional part Content-Type; a default is applied when empty.
+};
+
+/**
  * @brief Streaming response-body sink (see @ref Options::response_writer).
  *
  * Invoked with response body bytes as they arrive, in receive order and after
@@ -95,6 +109,16 @@ struct Options
 
     /// If non-empty, encoded as application/x-www-form-urlencoded body (unless overridden).
     std::map<std::string, std::string> form;
+
+    /**
+     * @brief multipart/form-data parts (text fields and/or file uploads).
+     *
+     * When non-empty this takes precedence over @ref json, @ref form, and
+     * @ref body, and sets @c Content-Type: multipart/form-data with a generated
+     * boundary (unless the caller set Content-Type). Build parts with
+     * @ref AddFormField / @ref AddFormFile / @ref AddFormFileFromPath.
+     */
+    std::vector<FormPart> multipart;
 
     /// Query parameters appended to the URL.
     std::map<std::string, std::string> params;
@@ -268,6 +292,38 @@ inline Options &WithForm(Options &opt, std::map<std::string, std::string> fields
     opt.form = std::move(fields);
     return opt;
 }
+
+/**
+ * @brief Append a multipart text field (see @ref Options::multipart).
+ */
+inline Options &AddFormField(Options &opt, std::string name, std::string value)
+{
+    opt.multipart.push_back(FormPart{std::move(name), std::move(value), std::nullopt, {}});
+    return opt;
+}
+
+/**
+ * @brief Append a multipart file part from in-memory bytes.
+ * @param content_type Optional; when empty a type is guessed from @p filename.
+ */
+inline Options &AddFormFile(Options &opt, std::string name, std::string filename, std::string data,
+                            std::string content_type = {})
+{
+    opt.multipart.push_back(FormPart{std::move(name), std::move(data),
+                                     std::optional<std::string>{std::move(filename)},
+                                     std::move(content_type)});
+    return opt;
+}
+
+/**
+ * @brief Append a multipart file part read from disk.
+ *
+ * The file at @p path is read fully into memory; @c filename defaults to the
+ * path's basename. Returns @c FileError if the file cannot be read.
+ */
+[[nodiscard]] Result<void> AddFormFileFromPath(Options &opt, std::string name,
+                                               const std::string &path,
+                                               std::string content_type = {});
 
 inline Options &WithProxy(Options &opt, std::string proxy_url)
 {

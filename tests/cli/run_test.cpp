@@ -84,6 +84,51 @@ TEST(CliOutput, HeadSkipsBody)
     EXPECT_EQ(out.str().find("secret"), std::string::npos);
 }
 
+TEST(CliRun, FormFileUploadIsMultipart)
+{
+    mog::test::LocalHttpServer server;
+    server.SetResponse(200, "ok");
+
+    const auto path = std::filesystem::temp_directory_path() / "mog_cli_upload.txt";
+    {
+        std::ofstream out(path, std::ios::binary);
+        out << "file body here";
+    }
+
+    mog::cli::Args args;
+    args.url = server.origin() + "/upload";
+    args.form_fields = {"field=value", "doc=@" + path.string()};
+    args.silent = true;
+
+    std::ostringstream out;
+    std::ostringstream err;
+    mog::cli::Streams streams;
+    streams.out = &out;
+    streams.err = &err;
+
+    const int code = mog::cli::Run(args, streams);
+    EXPECT_EQ(code, 0);
+
+    const auto last = server.Last();
+    EXPECT_EQ(last.method, "POST"); // -F promotes GET -> POST
+    bool multipart = false;
+    for (const auto &h : last.headers)
+    {
+        if ((h.first == "Content-Type" || h.first == "content-type") &&
+            h.second.find("multipart/form-data") != std::string::npos)
+        {
+            multipart = true;
+        }
+    }
+    EXPECT_TRUE(multipart);
+    EXPECT_NE(last.body.find("name=\"field\""), std::string::npos);
+    EXPECT_NE(last.body.find("value"), std::string::npos);
+    EXPECT_NE(last.body.find("name=\"doc\"; filename=\"mog_cli_upload.txt\""), std::string::npos);
+    EXPECT_NE(last.body.find("file body here"), std::string::npos);
+
+    std::filesystem::remove(path);
+}
+
 TEST(CliRun, OutputFileStreamsBody)
 {
     mog::test::LocalHttpServer server;

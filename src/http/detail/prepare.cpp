@@ -5,6 +5,7 @@
 
 #include "http/detail/prepare.hpp"
 
+#include "http/detail/multipart.hpp"
 #include "mog/log.hpp"
 #include "mog/util.hpp"
 
@@ -62,8 +63,19 @@ PreparedRequest PrepareRequest(const Options &options)
     PreparedRequest out;
     out.headers = options.headers;
 
-    // Body precedence: json > form > raw body
-    if (options.json.has_value())
+    // Body precedence: multipart > json > form > raw body
+    if (!options.multipart.empty())
+    {
+        const std::string boundary = GenerateMultipartBoundary();
+        out.body = BuildMultipartBody(options.multipart, boundary);
+        if (!HasHeader(out.headers, "Content-Type"))
+        {
+            out.headers["Content-Type"] = "multipart/form-data; boundary=" + boundary;
+        }
+        MOG_LOG_DEBUG("prepare: multipart body ({} parts, {} bytes)", options.multipart.size(),
+                      out.body.size());
+    }
+    else if (options.json.has_value())
     {
         out.body = *options.json;
         if (!HasHeader(out.headers, "Content-Type"))
