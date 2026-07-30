@@ -113,10 +113,14 @@ TEST(CliRun, OutputFileStreamsBody)
     const int code = mog::cli::Run(args, streams);
     EXPECT_EQ(code, 0);
 
-    std::ifstream in(path, std::ios::binary);
-    std::ostringstream file_contents;
-    file_contents << in.rdbuf();
-    EXPECT_EQ(file_contents.str(), payload);
+    std::string file_contents;
+    {
+        std::ifstream in(path, std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        file_contents = ss.str();
+    } // close the read handle before remove() — Windows locks open files
+    EXPECT_EQ(file_contents, payload);
     EXPECT_TRUE(out.str().empty());                       // body went to the file, not stdout
     EXPECT_EQ(err.str(), std::to_string(payload.size())); // -w size_download
 
