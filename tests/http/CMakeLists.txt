@@ -12,6 +12,8 @@ set(MOG_HTTP_TEST_SOURCES
   multipart_test.cpp
   digest_auth_test.cpp
   mtls_test.cpp
+  backend_selection_test.cpp
+  backend_conformance_test.cpp
 )
 if(MOG_WITH_JSON)
   list(APPEND MOG_HTTP_TEST_SOURCES json_test.cpp)
