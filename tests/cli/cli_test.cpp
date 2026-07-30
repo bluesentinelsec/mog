@@ -334,8 +334,14 @@ TEST(CliPrepare, FormImpliesPost)
     a.form_fields = {"user=alice", "x=1"};
     auto p = MustPrepare(a);
     EXPECT_EQ(p.method, mog::Method::Post);
-    EXPECT_EQ(p.options.form["user"], "alice");
-    EXPECT_EQ(p.options.form["x"], "1");
+    // -F now builds multipart/form-data parts (curl-compatible), not urlencoded.
+    EXPECT_TRUE(p.options.form.empty());
+    ASSERT_EQ(p.options.multipart.size(), 2U);
+    EXPECT_EQ(p.options.multipart[0].name, "user");
+    EXPECT_EQ(p.options.multipart[0].value, "alice");
+    EXPECT_FALSE(p.options.multipart[0].filename.has_value());
+    EXPECT_EQ(p.options.multipart[1].name, "x");
+    EXPECT_EQ(p.options.multipart[1].value, "1");
 }
 
 TEST(CliPrepare, FormInvalid)
