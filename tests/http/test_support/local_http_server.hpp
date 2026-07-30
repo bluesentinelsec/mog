@@ -225,6 +225,18 @@ class LocalHttpServer
         require_auth_ = std::move(expected_header_value);
     }
 
+    /**
+     * @brief Reply 401 with a Digest challenge until a request carries any
+     *        Authorization header (then serve the configured response).
+     */
+    void RequireDigestAuth(std::string realm = "testrealm", std::string nonce = "server-nonce-123")
+    {
+        std::lock_guard lock(mu_);
+        require_digest_ = true;
+        digest_realm_ = std::move(realm);
+        digest_nonce_ = std::move(nonce);
+    }
+
     [[nodiscard]] HttpExchange Last() const
     {
         std::lock_guard lock(mu_);
@@ -487,6 +499,33 @@ class LocalHttpServer
                 last_ = ex;
                 history_.push_back(ex);
 
+                if (require_digest_)
+                {
+                    bool has_auth = false;
+                    for (const auto &h : ex.headers)
+                    {
+                        if (h.first == "Authorization" || h.first == "authorization")
+                        {
+                            has_auth = true;
+                        }
+                    }
+                    if (!has_auth)
+                    {
+                        response =
+                            "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"" +
+                            digest_realm_ + "\", nonce=\"" + digest_nonce_ +
+                            "\", qop=\"auth\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        ::send(client, response.data(),
+#if defined(_WIN32)
+                               static_cast<int>(response.size()),
+#else
+                               response.size(),
+#endif
+                               0);
+                        return;
+                    }
+                }
+
                 if (!require_auth_.empty())
                 {
                     bool ok = false;
@@ -564,6 +603,9 @@ class LocalHttpServer
     std::vector<HttpExchange> history_;
     HttpResponseSpec default_{};
     std::string require_auth_;
+    bool require_digest_ = false;
+    std::string digest_realm_;
+    std::string digest_nonce_;
     std::map<std::string, HttpResponseSpec> path_rules_;
 };
 

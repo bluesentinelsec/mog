@@ -36,6 +36,8 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | Raw body / file body | `Options::body` / `ReadFile` | `-d`, `-d @file` |
 | Basic auth | `WithBasicAuth` | `-u user:pass` |
 | Bearer token | `WithBearerToken` | `--bearer` |
+| Digest auth | `WithDigestAuth` | `-u user:pass --digest` |
+| Client cert (mTLS) | `WithClientCert` / `Options::client_cert` | `--cert`, `--key`, `--pass` |
 | Custom headers | `Options::headers` | `-H` |
 | Cookies (send + Set-Cookie parse) | yes + Session jar | `-b` |
 | Redirects | yes (**default on**) | `--no-location` to disable, `--max-redirs` |
@@ -130,7 +132,8 @@ int main() {
 | `multipart` | multipart/form-data parts (`AddFormField` / `AddFormFile`) |
 | `params` | Query string parameters |
 | `cookies` | Cookie name → value |
-| `auth` | Basic or Bearer (`WithBasicAuth` / `WithBearerToken`) |
+| `auth` | Basic / Bearer / Digest (`WithBasicAuth` / `WithBearerToken` / `WithDigestAuth`) |
+| `client_cert` / `client_key` / `client_key_password` | mTLS client certificate (`WithClientCert`) |
 | `timeout` | I/O deadline (default 30s) |
 | `connect_timeout` | Optional connect-only deadline |
 | `verify_tls` | Certificate verification (default true) |
@@ -321,13 +324,17 @@ mog [options] URL
 | `-d DATA` | Body (`@file` reads a file) |
 | `--json DATA` | JSON body (`@file` ok); implies POST if method is GET |
 | `-F name=value` | multipart part; `name=@file[;type=..;filename=..]` uploads a file, `name=<file` reads a field value from a file |
-| `-u user:pass` | Basic auth |
+| `-u user:pass` | Basic auth (add `--digest` for Digest) |
+| `--digest` | Use HTTP Digest auth with `-u` credentials |
 | `--bearer TOKEN` | Bearer auth |
 | `-A UA` | User-Agent |
 | `-e URL` | Referer |
 | `-b "a=1; b=2"` | Cookies |
 | `-x http://host:port` | HTTP proxy |
 | `--cacert PATH` | CA bundle |
+| `-E, --cert PATH` | Client certificate PEM (mTLS) |
+| `--key PATH` | Client private-key PEM (defaults to `--cert`) |
+| `--pass PHRASE` | Passphrase for `--key` |
 | `--timeout SEC` | I/O timeout |
 | `--connect-timeout SEC` | Connect timeout |
 | `--max-redirs N` | Max redirects (default 5) |
@@ -374,6 +381,33 @@ Resource policy used elsewhere in mog:
 
 ---
 
+## Advanced auth (Digest, mTLS)
+
+**HTTP Digest** — challenge-response auth for locked-down APIs. The first request
+is sent without credentials; on a `401` with a `Digest` challenge, mog computes
+the response and retries once. Supports `qop=auth` (and legacy no-qop) with `MD5`,
+`MD5-sess`, `SHA-256`, and `SHA-256-sess`.
+
+```cpp
+mog::Options opt;
+mog::WithDigestAuth(opt, "user", "pass");
+auto r = mog::get("https://api.example.com/protected", opt);   // CLI: -u user:pass --digest
+```
+
+**Client certificates (mTLS)** — present a client certificate during the TLS
+handshake (embedded/mbedTLS backend):
+
+```cpp
+mog::Options opt;
+mog::WithClientCert(opt, "client.pem", "client.key");   // + optional key passphrase
+auto r = mog::get("https://mtls.example.com/", opt);    // CLI: --cert client.pem --key client.key
+```
+
+Non-goals for this release: Digest `qop=auth-int`, and platform-backend-specific
+certificate stores (the embedded backend takes PEM file paths).
+
+---
+
 ## Project layout
 
 ```text
@@ -408,7 +442,7 @@ The default **embedded** backend is the behavioral baseline. Conformance tests
 | Redirects | **Follow by default** (301–308); POST→GET on 301/302/303; preserve POST on 307/308; max redirects; `allow_redirects=false` / `--no-location` to not follow |
 | Keep-alive | Session reuses TCP/TLS to same origin when server allows; free functions are connection-per-request |
 | Failures | connect refused, `max_response_bytes` (CL + chunked) |
-| Auth | Basic and Bearer `Authorization` on the wire |
+| Auth | Basic, Bearer, and Digest `Authorization`; mTLS client certs |
 | Encoding | gzip decode on by default; raw when `decompress=false` |
 | Backend | `Response::backend == "embedded"` |
 

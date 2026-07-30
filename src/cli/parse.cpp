@@ -35,6 +35,9 @@ void AddCommonOptions(CLI::App *app, Args &cli)
     app->add_option("-b,--cookie", cli.cookie, "Cookie header (name=value; ...)");
     app->add_option("-x,--proxy", cli.proxy, "HTTP proxy URL (http://host:port)");
     app->add_option("--cacert", cli.ca_bundle, "PEM CA bundle path");
+    app->add_option("-E,--cert", cli.client_cert, "Client certificate PEM (mTLS)");
+    app->add_option("--key", cli.client_key, "Client private-key PEM (mTLS; defaults to --cert)");
+    app->add_option("--pass", cli.client_key_password, "Passphrase for --key");
     app->add_option("--backend", cli.backend,
                     "Backend: auto|embedded|curl|winhttp|native (overrides MOG_BACKEND)");
     app->add_option("--timeout", cli.timeout_sec, "Timeout in seconds")->default_val(30.0);
@@ -44,6 +47,7 @@ void AddCommonOptions(CLI::App *app, Args &cli)
                     "Format string: %{http_code} %{url_effective} %{time_total} "
                     "%{size_download} %{num_redirects}");
     app->add_flag("-k,--insecure", cli.insecure, "Disable TLS certificate verification");
+    app->add_flag("--digest", cli.digest, "Use HTTP Digest auth with -u credentials");
     app->add_flag("-v,--verbose", cli.verbose, "Debug logging (spdlog level=debug)");
     app->add_option("--log-level", cli.log_level,
                     "Log level: trace|debug|info|warn|error|critical|off "

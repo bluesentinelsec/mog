@@ -7,6 +7,7 @@
 
 #include "http/detail/connection_pool.hpp"
 #include "http/detail/content_encoding.hpp"
+#include "http/detail/digest_auth.hpp"
 #include "http/detail/env.hpp"
 #include "http/detail/prepare.hpp"
 #include "http/detail/stream.hpp"
@@ -76,6 +77,19 @@ std::optional<std::string> ResolveCaBundle(const Options &options)
         return env;
     }
     return std::nullopt;
+}
+
+std::optional<TlsClientCert> ResolveClientCert(const Options &options)
+{
+    if (!options.client_cert.has_value() || options.client_cert->empty())
+    {
+        return std::nullopt;
+    }
+    TlsClientCert cert;
+    cert.cert_path = *options.client_cert;
+    cert.key_path = options.client_key.value_or(*options.client_cert);
+    cert.key_password = options.client_key_password;
+    return cert;
 }
 
 std::string HostHeaderValue(const Url &url)
@@ -652,7 +666,7 @@ Result<std::unique_ptr<Stream>> OpenStream(const Url &url, const Options &option
             MOG_LOG_DEBUG("TLS handshake host={} verify={}", url.host, options.verify_tls);
             TlsSession tls;
             auto hs = tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options),
-                                    io_timeout);
+                                    ResolveClientCert(options), io_timeout);
             if (!hs)
             {
                 MOG_LOG_WARN("TLS handshake failed: {}", hs.error().to_string());
@@ -704,8 +718,8 @@ Result<std::unique_ptr<Stream>> OpenStream(const Url &url, const Options &option
         }
         MOG_LOG_DEBUG("TLS handshake via proxy host={} verify={}", url.host, options.verify_tls);
         TlsSession tls;
-        auto hs =
-            tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options), io_timeout);
+        auto hs = tls.Handshake(sock, url.host, options.verify_tls, ResolveCaBundle(options),
+                                ResolveClientCert(options), io_timeout);
         if (!hs)
         {
             MOG_LOG_WARN("TLS handshake failed: {}", hs.error().to_string());
@@ -733,6 +747,7 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
     std::string body = prepared.body;
     std::map<std::string, std::string> headers = prepared.headers;
     int redirects = 0;
+    bool digest_retried = false;
     std::vector<std::string> history;
 
     MOG_LOG_DEBUG("embedded: start {} {} body={}B connect_timeout={}ms io_timeout={}ms",
@@ -844,9 +859,29 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
         }
         const bool following_redirect = options.allow_redirects && !location.empty();
 
+        // Detect a Digest 401 challenge we can answer, so its body is discarded
+        // (not streamed to the caller) and we retry with credentials.
+        DigestChallenge digest_challenge;
+        if (options.auth.kind == Auth::Kind::Digest && !digest_retried && head->status == 401)
+        {
+            for (const auto &h : head->headers)
+            {
+                if (EqualsIgnoreCase(h.name, "WWW-Authenticate"))
+                {
+                    auto parsed_challenge = ParseDigestChallenge(h.value);
+                    if (parsed_challenge.present)
+                    {
+                        digest_challenge = std::move(parsed_challenge);
+                        break;
+                    }
+                }
+            }
+        }
+        const bool will_digest_retry = digest_challenge.present;
+
         // Stream to the caller's writer only for the final response body.
         const bool stream_to_writer =
-            static_cast<bool>(options.response_writer) && !following_redirect;
+            static_cast<bool>(options.response_writer) && !following_redirect && !will_digest_retry;
 
         std::string body_buffer;
         BodySink sink;
@@ -915,6 +950,33 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
                 }
             }
             ++redirects;
+            continue;
+        }
+
+        if (will_digest_retry)
+        {
+            if (can_reuse)
+            {
+                pool->Put(conn_key, std::move(stream));
+            }
+            else
+            {
+                stream.reset();
+            }
+
+            std::string target = url.path.empty() ? "/" : url.path;
+            if (!url.query.empty())
+            {
+                target += "?";
+                target += url.query;
+            }
+            const std::string cnonce = GenerateCnonce();
+            headers["Authorization"] =
+                "Digest " + BuildDigestAuthorization(
+                                digest_challenge, options.auth.username, options.auth.password,
+                                std::string{ToString(current_method)}, target, cnonce);
+            digest_retried = true;
+            MOG_LOG_INFO("embedded: digest auth challenge received, retrying with credentials");
             continue;
         }
 

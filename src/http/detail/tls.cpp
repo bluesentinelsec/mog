@@ -16,6 +16,7 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 #include <mbedtls/net_sockets.h>
+#include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <mutex>
@@ -98,6 +99,8 @@ struct TlsSession::Impl
     mbedtls_ssl_context ssl{};
     mbedtls_ssl_config conf{};
     mbedtls_x509_crt cacert{};
+    mbedtls_x509_crt clicert{};
+    mbedtls_pk_context clikey{};
     BioContext bio{};
     bool active = false;
 
@@ -108,6 +111,8 @@ struct TlsSession::Impl
         mbedtls_ssl_init(&ssl);
         mbedtls_ssl_config_init(&conf);
         mbedtls_x509_crt_init(&cacert);
+        mbedtls_x509_crt_init(&clicert);
+        mbedtls_pk_init(&clikey);
     }
 
     ~Impl()
@@ -115,6 +120,8 @@ struct TlsSession::Impl
         mbedtls_ssl_free(&ssl);
         mbedtls_ssl_config_free(&conf);
         mbedtls_x509_crt_free(&cacert);
+        mbedtls_x509_crt_free(&clicert);
+        mbedtls_pk_free(&clikey);
         mbedtls_ctr_drbg_free(&ctr_drbg);
         mbedtls_entropy_free(&entropy);
     }
@@ -131,6 +138,7 @@ TlsSession &TlsSession::operator=(TlsSession &&) noexcept = default;
 
 Result<void> TlsSession::Handshake(TcpSocket &socket, std::string_view hostname, bool verify,
                                    const std::optional<std::string> &ca_bundle,
+                                   const std::optional<TlsClientCert> &client_cert,
                                    std::chrono::milliseconds timeout)
 {
     impl_->bio.socket = &socket;
@@ -169,6 +177,35 @@ Result<void> TlsSession::Handshake(TcpSocket &socket, std::string_view hostname,
     else
     {
         mbedtls_ssl_conf_authmode(&impl_->conf, MBEDTLS_SSL_VERIFY_NONE);
+    }
+
+    if (client_cert.has_value() && !client_cert->cert_path.empty())
+    {
+        ret = mbedtls_x509_crt_parse_file(&impl_->clicert, client_cert->cert_path.c_str());
+        if (ret != 0)
+        {
+            return Result<void>::Err(Error{ErrorCode::TlsFailed, "load client certificate '" +
+                                                                     client_cert->cert_path +
+                                                                     "': " + MbedError(ret)});
+        }
+        const std::string &key_path =
+            client_cert->key_path.empty() ? client_cert->cert_path : client_cert->key_path;
+        const char *pwd =
+            client_cert->key_password.empty() ? nullptr : client_cert->key_password.c_str();
+        ret = mbedtls_pk_parse_keyfile(&impl_->clikey, key_path.c_str(), pwd,
+                                       mbedtls_ctr_drbg_random, &impl_->ctr_drbg);
+        if (ret != 0)
+        {
+            return Result<void>::Err(Error{ErrorCode::TlsFailed, "load client key '" + key_path +
+                                                                     "': " + MbedError(ret)});
+        }
+        ret = mbedtls_ssl_conf_own_cert(&impl_->conf, &impl_->clicert, &impl_->clikey);
+        if (ret != 0)
+        {
+            return Result<void>::Err(
+                Error{ErrorCode::TlsFailed, "configure client certificate: " + MbedError(ret)});
+        }
+        MOG_LOG_DEBUG("tls: client certificate configured (mTLS) cert={}", client_cert->cert_path);
     }
 
     mbedtls_ssl_conf_rng(&impl_->conf, mbedtls_ctr_drbg_random, &impl_->ctr_drbg);

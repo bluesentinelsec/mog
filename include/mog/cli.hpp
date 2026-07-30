@@ -48,6 +48,9 @@ struct Args
     std::string cookie;
     std::string proxy;
     std::string ca_bundle;
+    std::string client_cert;
+    std::string client_key;
+    std::string client_key_password;
     double timeout_sec = 30.0;
     double connect_timeout_sec = -1.0;
     int max_redirs = 5;
@@ -61,6 +64,7 @@ struct Args
     bool silent = false;
     bool show_error = false;
     bool no_decompress = false;
+    bool digest = false;
     std::string write_out;
     std::string log_level;
 };

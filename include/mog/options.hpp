@@ -57,11 +57,12 @@ struct Auth
         None,
         Basic,
         Bearer,
+        Digest, ///< HTTP Digest (challenge-response; sent after a 401).
     };
 
     Kind kind = Kind::None;
-    std::string username; ///< Basic auth user.
-    std::string password; ///< Basic auth password.
+    std::string username; ///< Basic / Digest auth user.
+    std::string password; ///< Basic / Digest auth password.
     std::string token;    ///< Bearer token (without the "Bearer " prefix).
 };
 
@@ -134,6 +135,20 @@ struct Options
 
     /// Verify TLS certificates (HTTPS). Set false only for debugging.
     bool verify_tls = true;
+
+    /**
+     * @brief Client certificate (PEM file path) for mutual TLS (mTLS). Optional.
+     *
+     * When set, it is presented to the server during the TLS handshake. The
+     * private key comes from @ref client_key (or this same file if that is unset).
+     */
+    std::optional<std::string> client_cert;
+
+    /// Client private-key PEM file path for mTLS. Defaults to @ref client_cert when unset.
+    std::optional<std::string> client_key;
+
+    /// Passphrase for an encrypted @ref client_key (empty = unencrypted).
+    std::string client_key_password;
 
     /**
      * @brief Optional path to a PEM CA bundle (highest precedence for TLS trust).
@@ -259,6 +274,34 @@ inline Options &WithBearerToken(Options &opt, std::string token)
     opt.auth.token = std::move(token);
     opt.auth.username.clear();
     opt.auth.password.clear();
+    return opt;
+}
+
+/**
+ * @brief Use HTTP Digest auth (credentials sent in response to a 401 challenge).
+ */
+inline Options &WithDigestAuth(Options &opt, std::string username, std::string password)
+{
+    opt.auth.kind = Auth::Kind::Digest;
+    opt.auth.username = std::move(username);
+    opt.auth.password = std::move(password);
+    opt.auth.token.clear();
+    return opt;
+}
+
+/**
+ * @brief Present a client certificate for mutual TLS.
+ * @param key_path Private-key PEM; defaults to @p cert_path when empty.
+ */
+inline Options &WithClientCert(Options &opt, std::string cert_path, std::string key_path = {},
+                               std::string key_password = {})
+{
+    opt.client_cert = std::move(cert_path);
+    if (!key_path.empty())
+    {
+        opt.client_key = std::move(key_path);
+    }
+    opt.client_key_password = std::move(key_password);
     return opt;
 }
 
