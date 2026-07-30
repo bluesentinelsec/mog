@@ -145,6 +145,8 @@ TEST(Multipart, GetWithPartsBecomesPost)
     server.SetResponse(200, "ok");
 
     mog::Options opt;
+    opt.backend =
+        mog::Backend::Embedded; // GET-with-body is embedded behavior (NSURLSession drops it)
     mog::AddFormField(opt, "k", "v");
     auto r = mog::request(mog::Method::Get, server.origin() + "/x", opt);
     ASSERT_TRUE(r) << r.error().to_string();

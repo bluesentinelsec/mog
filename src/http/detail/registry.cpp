@@ -8,6 +8,7 @@
 #include "http/detail/native_backend.hpp"
 #include "http/detail/transport.hpp"
 #include "http/detail/winhttp_backend.hpp"
+#include "mog/backend.hpp"
 
 #include <array>
 #include <mutex>
@@ -183,6 +184,33 @@ Backend ResolveAutoBackend()
         // Auto prefers a native backend only once it opts in (feature parity),
         // not merely because it is available for explicit selection.
         if (transport != nullptr && transport->Available() && transport->AutoPreferred())
+        {
+            return native;
+        }
+    }
+    return Backend::Embedded;
+}
+
+Backend SelectBackend(const Options &options)
+{
+    // Explicit selection (Options::backend or MOG_BACKEND) is honored exactly.
+    if (options.backend.has_value() && *options.backend != Backend::Auto)
+    {
+        return *options.backend;
+    }
+    if (auto env = BackendFromEnvironment(); env.has_value() && *env != Backend::Auto)
+    {
+        return *env;
+    }
+
+    // Auto: prefer the platform native backend when it is available, auto-preferred,
+    // and can service this request; otherwise fall back to embedded.
+    const Backend native = PreferredNativeBackend();
+    if (native != Backend::Embedded)
+    {
+        Transport *transport = FindTransport(native);
+        if (transport != nullptr && transport->Available() && transport->AutoPreferred() &&
+            transport->Supports(options))
         {
             return native;
         }

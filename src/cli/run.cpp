@@ -55,9 +55,12 @@ bool ConfigureLogging(const Args &args)
 
 int Run(const Prepared &prepared, Streams streams)
 {
-    const auto backend = ResolveBackend(prepared.options.backend);
-    MOG_LOG_INFO("cli: {} {} backend={}", ToString(prepared.method), prepared.url,
-                 ToString(backend));
+    // Log the requested backend; the request layer logs the concrete one actually
+    // used (Auto may resolve to native or fall back to embedded per request).
+    const std::string requested = prepared.options.backend.has_value()
+                                      ? std::string{ToString(*prepared.options.backend)}
+                                      : "auto";
+    MOG_LOG_INFO("cli: {} {} backend={}", ToString(prepared.method), prepared.url, requested);
 
     // Stream the body straight to the output file for real downloads, so large
     // responses never sit fully in memory. Headers-in-body (-i) still uses the

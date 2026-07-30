@@ -55,11 +55,17 @@ TEST(BackendSelection, EmbeddedIsAlwaysAvailable)
     EXPECT_TRUE(IsBackendAvailable(Backend::Embedded));
 }
 
-TEST(BackendSelection, AutoDefaultsToEmbeddedUntilNativeOptsIn)
+TEST(BackendSelection, AutoPrefersNativeWhenAvailable)
 {
-    // A native backend may be Available (e.g. NSURLSession on macOS) yet not
-    // Auto-preferred until it reaches parity, so Auto keeps using embedded.
-    EXPECT_EQ(ResolveAutoBackend(), Backend::Embedded);
+    const Backend native = PreferredNativeBackend();
+    if (native != Backend::Embedded && IsBackendAvailable(native))
+    {
+        EXPECT_EQ(ResolveAutoBackend(), native); // e.g. NSURLSession on macOS
+    }
+    else
+    {
+        EXPECT_EQ(ResolveAutoBackend(), Backend::Embedded); // no native -> fallback
+    }
 }
 
 TEST(BackendSelection, AutoPrefersAvailableNativeBackend)

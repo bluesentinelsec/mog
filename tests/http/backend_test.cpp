@@ -1,4 +1,5 @@
 #include "http/detail/env.hpp"
+#include "http/detail/transport.hpp"
 #include "mog/backend.hpp"
 
 #include <gtest/gtest.h>
@@ -48,12 +49,21 @@ TEST(BackendTest, ResolveExplicitOverride)
     EXPECT_EQ(mog::ResolveBackend(mog::Backend::Embedded), mog::Backend::Embedded);
 }
 
-TEST(BackendTest, DefaultIsEmbedded)
+TEST(BackendTest, DefaultPrefersNativeWhenAvailable)
 {
     // Clear env for this process if set — restore afterward.
     const auto previous = mog::detail::GetEnv("MOG_BACKEND");
     ClearEnv("MOG_BACKEND");
-    EXPECT_EQ(mog::ResolveBackend(std::nullopt), mog::Backend::Embedded);
+    const auto def = mog::ResolveBackend(std::nullopt);
+    const auto native = mog::detail::PreferredNativeBackend();
+    if (native != mog::Backend::Embedded && mog::detail::IsBackendAvailable(native))
+    {
+        EXPECT_EQ(def, native); // Auto prefers the platform-native backend
+    }
+    else
+    {
+        EXPECT_EQ(def, mog::Backend::Embedded); // no native available -> fallback
+    }
     if (previous.has_value())
     {
         SetEnvVar("MOG_BACKEND", previous->c_str());

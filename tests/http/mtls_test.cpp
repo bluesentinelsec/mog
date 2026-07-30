@@ -69,6 +69,7 @@ TEST(Mtls, MissingClientCertReportsClearError)
 
     mog::Options opt;
     opt.verify_tls = false;
+    opt.backend = mog::Backend::Embedded; // validates the embedded backend's mTLS load path
     opt.timeout = std::chrono::seconds(2);
     opt.client_cert = "/no/such/client-cert.pem";
 
@@ -87,6 +88,7 @@ TEST(Mtls, MissingClientKeyReportsClearError)
 
     mog::Options opt;
     opt.verify_tls = false;
+    opt.backend = mog::Backend::Embedded; // validates the embedded backend's mTLS load path
     opt.timeout = std::chrono::seconds(2);
     opt.client_cert = cert;
     opt.client_key = "/no/such/client-key.pem";
@@ -109,6 +111,7 @@ TEST(Mtls, ValidCertAndKeyLoadSuccessfully)
 
     mog::Options opt;
     opt.verify_tls = false;
+    opt.backend = mog::Backend::Embedded; // validates the embedded backend's mTLS load path
     opt.timeout = std::chrono::seconds(2);
     opt.client_cert = cert;
     opt.client_key = key;

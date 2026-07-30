@@ -56,9 +56,24 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | libcurl backend (runtime `dlopen`) | `Options::backend = Curl` | `--backend curl` |
 | WinHTTP backend (Windows) | `Options::backend = WinHttp` | `--backend winhttp` |
 | Session cookie jar (domain/path/Secure) | yes | `-b` (per-request) |
-| HTTP/2, WebSocket | not yet | not yet |
 | Content-Encoding gzip/deflate | yes (miniz, static) | `--no-decompress` to disable |
+| HTTP/2, WebSocket | non-goals (see below) | non-goals |
 | HTTP server | deferred | deferred |
+
+### Non-goals
+
+- **HTTP/2** is not implemented in the embedded stack (HTTP/1.1 only) and is not
+  planned there. When you need it, use a platform-native backend that provides
+  it — `--backend curl`/`winhttp`/`native` all speak HTTP/2 where the OS library
+  does — since HTTP semantics are identical and mog's API is unchanged. (If
+  embedded HTTP/2 is ever required, `nghttp2` — MIT, lib-only static — is the
+  intended route; not on the roadmap today.)
+- **WebSocket** is out of scope: mog is a request/response HTTP client. For
+  server-push over HTTP, a streaming (SSE-style) response via `response_writer`
+  covers many cases without a new protocol.
+
+These keep the embedded fallback small and auditable; large-scale/HTTP-2 traffic
+rides the native backends.
 
 ---
 
@@ -72,6 +87,26 @@ make && make test
 ```
 
 Windows: `build.bat` / `build.bat test`.
+
+### Static Linux binary (scratch / minimal images)
+
+A fully static, self-contained binary — C runtime, C++ runtime, mbedTLS, and the
+embedded Mozilla CA bundle all baked in — runs on `FROM scratch` with nothing
+else on the filesystem:
+
+```bash
+docker build -f docker/Dockerfile.linux-static -t mog-static .
+docker run --rm mog-static get https://example.com   # HTTPS via bundled CAs, no CA file on disk
+```
+
+It's built on **Alpine (musl)**: `-static` with musl produces a genuinely
+self-contained binary. A glibc `-static` build is *not* scratch-safe — glibc's
+`getaddrinfo` `dlopen`s NSS plugins at runtime, which don't exist on `scratch`,
+so DNS breaks; musl's resolver is built in. CI builds and smoke-tests this image
+(`linux-static` job), and releases attach `mog-linux-x86_64-static-<version>.zip`.
+
+> DNS still needs a resolver config: containers get `/etc/resolv.conf` from the
+> runtime. On a bare host with no resolver, use an IP or provide `resolv.conf`.
 
 ---
 
@@ -307,36 +342,44 @@ method / log level, plus CLI11 parse of subcommands and repeated `-H`/`-F`).
 
 ### Backend selection
 
-1. `Options::backend` / CLI `--backend`
-2. Env `MOG_BACKEND`
-3. `Auto` (default): prefer a platform-native backend once it reaches parity,
-   else fall back to **`embedded`**
+Precedence:
 
-**Platform-native backends** onboard incrementally behind this same API:
+1. `Options::backend` / CLI `--backend` (explicit — honored exactly)
+2. Env `MOG_BACKEND` (explicit)
+3. `Auto` (default): **prefer the platform-native backend**, else fall back to
+   the always-present **`embedded`** stack
 
-| Backend | Selector | Status |
-|---------|----------|--------|
-| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Default; full feature set |
-| macOS NSURLSession | `native` | **Available** (explicitly selectable, conformance-tested); not yet the `Auto` default while streaming / keep-alive pooling / `max_response_bytes` / Digest / mTLS reach parity |
-| libcurl (Linux & macOS, via `dlopen`) | `curl` | **Available** when libcurl is installed; loaded at runtime (never link-time), conformance-tested; not yet the `Auto` default (same parity items) |
-| Windows WinHTTP | `winhttp` | **Available** on Windows (ships with the OS), conformance-tested; not yet the `Auto` default (same parity items) |
+`Auto` is **capability-aware**: it uses the native backend for what it does well
+and transparently falls back to embedded for any request the native backend
+can't serve (see deltas below) — so the default never silently loses a feature.
+On a minimal image with no native library (e.g. a `scratch` container without
+libcurl), `Auto` naturally lands on embedded.
 
-`Auto` only switches to a native backend once that backend opts in at feature
-parity, so the default behavior never silently loses an embedded feature.
+| Backend | Selector | Role |
+|---------|----------|------|
+| macOS NSURLSession | `native` | Auto default on macOS |
+| libcurl (Linux & macOS, via `dlopen`) | `curl` | Auto default on Linux |
+| Windows WinHTTP | `winhttp` | Auto default on Windows |
+| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Fallback + full feature set; the API you design against |
+
+Native libraries are reached **without hard-linking**: **libcurl** via runtime
+`dlopen`, **WinHTTP** and **NSURLSession** via always-present system frameworks.
 
 **The contract.** Every backend is held to one behavioral suite —
-`RunHttpContract` in `tests/http/backend_conformance_test.cpp` (methods, status,
-request/response headers, body, query, redirects) — run against each backend on
-its OS in CI. Native libraries are reached without hard-linking: **libcurl** via
-runtime `dlopen`, **WinHTTP** and **NSURLSession** via always-present system
-frameworks. CI also enforces (`MOG_CI_ENFORCE_BACKENDS`) that each OS's expected
-backend is actually available, so a native backend regressing to "unavailable"
-fails the build instead of silently skipping.
+`RunHttpContract` in `tests/http/backend_conformance_test.cpp` — run against each
+backend on its OS in CI, which also enforces (`MOG_CI_ENFORCE_BACKENDS`) that each
+OS's expected backend is actually available (a regression to "unavailable" fails
+the build instead of silently skipping).
 
-**Intentional deltas** (use the embedded or curl backend when you need these):
-NSURLSession and WinHTTP don't honor a custom CA bundle or PEM client
-certificates (they use the OS trust/keychain store); WinHTTP mTLS via the
-Windows cert store and streaming/keep-alive parity are future work.
+**Capability fallback / deltas.** Under `Auto`, a request that needs a feature the
+native backend doesn't implement falls back to embedded automatically:
+- **Streaming** (`response_writer`) and **Digest auth** → embedded on all natives.
+- **Custom CA bundle** and **PEM client certificates (mTLS)** → embedded on
+  NSURLSession/WinHTTP (they use the OS trust/keychain store); the curl backend
+  honors both. `max_response_bytes` is enforced only by embedded.
+
+Choosing a backend explicitly (`--backend`, `MOG_BACKEND`, `Options::backend`)
+disables the capability fallback — the request uses exactly that backend.
 
 ---
 

@@ -203,3 +203,46 @@ jobs:
           path: ${{ steps.pkg_release.outputs.artifact_path }}
           if-no-files-found: error
           retention-days: 14
+
+  # Fully static (musl) Linux binary for scratch / minimal images. Proves the
+  # "one static binary, encrypted HTTP, nothing else on disk" story end to end.
+  linux-static:
+    name: linux-static (alpine/musl, scratch)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build static musl binary + scratch image
+        run: docker build -f docker/Dockerfile.linux-static -t mog-static .
+
+      - name: Verify fully static and extract the binary
+        run: |
+          set -euo pipefail
+          cid="$(docker create mog-static --version)"
+          docker cp "${cid}:/mog" mog-linux-x86_64-static
+          docker rm "${cid}" >/dev/null
+          file mog-linux-x86_64-static
+          file mog-linux-x86_64-static | grep -q "statically linked"
+
+      - name: HTTPS from scratch using the bundled CA bundle (no CA file on disk)
+        run: |
+          set -uo pipefail
+          # -f => exit 0 only on a successful (2xx/3xx) HTTPS exchange; the TLS
+          # handshake here verifies against the compiled-in Mozilla CA bundle with
+          # no CA file on the scratch filesystem. Retry to absorb network blips.
+          for attempt in 1 2 3; do
+            if docker run --rm mog-static get https://example.com -f -s -o /dev/null; then
+              echo "scratch HTTPS OK"; exit 0
+            fi
+            echo "attempt ${attempt} failed; retrying"; sleep 3
+          done
+          echo "scratch HTTPS check failed"; exit 1
+
+      - name: Upload static binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: mog-linux-x86_64-static
+          path: mog-linux-x86_64-static
+          if-no-files-found: error
+          retention-days: 14
