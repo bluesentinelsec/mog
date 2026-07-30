@@ -9,6 +9,7 @@
 #include "mog/log.hpp"
 
 #include <fstream>
+#include <utility>
 
 namespace mog::cli
 {
@@ -58,7 +59,25 @@ int Run(const Prepared &prepared, Streams streams)
     MOG_LOG_INFO("cli: {} {} backend={}", ToString(prepared.method), prepared.url,
                  ToString(backend));
 
-    auto result = request(prepared.method, prepared.url, prepared.options);
+    // Stream the body straight to the output file for real downloads, so large
+    // responses never sit fully in memory. Headers-in-body (-i) still uses the
+    // buffered path so the header block precedes the body in the same stream.
+    const bool stream_to_file = !prepared.output.empty() && prepared.output != "/dev/null" &&
+                                prepared.method != Method::Head && !prepared.include_headers;
+
+    Options options = prepared.options;
+    if (stream_to_file)
+    {
+        auto writer = FileWriter(prepared.output);
+        if (!writer)
+        {
+            MOG_LOG_ERROR("{}", writer.error().to_string());
+            return 1;
+        }
+        options.response_writer = std::move(*writer);
+    }
+
+    auto result = request(prepared.method, prepared.url, options);
     if (!result)
     {
         if (!prepared.silent || prepared.show_error)
@@ -74,7 +93,8 @@ int Run(const Prepared &prepared, Streams streams)
 
     const Response &response = *result;
     MOG_LOG_INFO("cli: HTTP {} {} ({} bytes, {} ms, backend={})", response.status_code,
-                 response.reason, response.body.size(), response.elapsed.count(), response.backend);
+                 response.reason, response.downloaded_bytes, response.elapsed.count(),
+                 response.backend);
     if (prepared.verbose)
     {
         for (const auto &h : response.headers)
@@ -90,24 +110,29 @@ int Run(const Prepared &prepared, Streams streams)
         return 1;
     }
 
-    std::ostream *out = streams.out != nullptr ? streams.out : &std::cout;
-    std::ofstream file;
-    if (!prepared.output.empty())
+    // When streaming, the body has already been written to the output file by the
+    // response writer; only non-streaming responses need explicit output here.
+    if (!stream_to_file)
     {
-        file.open(prepared.output, std::ios::binary);
-        if (!file)
+        std::ostream *out = streams.out != nullptr ? streams.out : &std::cout;
+        std::ofstream file;
+        if (!prepared.output.empty())
         {
-            MOG_LOG_ERROR("failed to open output file: {}", prepared.output);
+            file.open(prepared.output, std::ios::binary);
+            if (!file)
+            {
+                MOG_LOG_ERROR("failed to open output file: {}", prepared.output);
+                return 1;
+            }
+            out = &file;
+        }
+
+        auto written = WriteResponseOutput(prepared, response, *out);
+        if (!written)
+        {
+            MOG_LOG_ERROR("{}", written.error().to_string());
             return 1;
         }
-        out = &file;
-    }
-
-    auto written = WriteResponseOutput(prepared, response, *out);
-    if (!written)
-    {
-        MOG_LOG_ERROR("{}", written.error().to_string());
-        return 1;
     }
 
     if (!prepared.write_out.empty() && streams.err != nullptr)

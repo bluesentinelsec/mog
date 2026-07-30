@@ -125,7 +125,11 @@ PreparedRequest PrepareRequest(const Options &options)
         out.headers["User-Agent"] = options.user_agent;
     }
 
-    if (options.decompress && !HasHeader(out.headers, "Accept-Encoding"))
+    // Streaming delivers the exact wire bytes (no content-decode), so do not
+    // advertise gzip/deflate when a response writer is attached — the caller
+    // gets an identity body by default. A caller-set Accept-Encoding still wins.
+    if (options.decompress && !options.response_writer &&
+        !HasHeader(out.headers, "Accept-Encoding"))
     {
         out.headers["Accept-Encoding"] = "gzip, deflate";
     }

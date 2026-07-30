@@ -5,9 +5,11 @@
 #pragma once
 
 #include "mog/backend.hpp"
+#include "mog/error.hpp"
 
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -62,6 +64,17 @@ struct Auth
     std::string password; ///< Basic auth password.
     std::string token;    ///< Bearer token (without the "Bearer " prefix).
 };
+
+/**
+ * @brief Streaming response-body sink (see @ref Options::response_writer).
+ *
+ * Invoked with response body bytes as they arrive, in receive order and after
+ * transfer-decoding (de-chunked). Return an @ref Error to abort the transfer
+ * (the request fails with that error). The writer is never called for bodyless
+ * responses (HEAD / 204 / 304) nor for intermediate redirect responses — only
+ * the final response body is streamed.
+ */
+using BodyWriter = std::function<Result<void>(std::string_view data)>;
 
 /**
  * @brief Per-request configuration (similar to kwargs in Python requests).
@@ -166,9 +179,36 @@ struct Options
      * Adds @c Accept-Encoding: gzip, deflate unless the caller already set that header.
      * Decoded body is exposed in @c Response::body; Content-Encoding / Content-Length
      * are adjusted accordingly. Unknown encodings fail with @c CompressionError.
+     *
+     * Ignored when @ref response_writer is set (streaming delivers raw bytes).
      */
     bool decompress = true;
+
+    /**
+     * @brief Optional streaming sink for the response body (see @ref BodyWriter).
+     *
+     * When set, the final response body is delivered incrementally to this
+     * writer instead of being buffered — @ref Response::body stays empty and
+     * @ref Response::downloaded_bytes reports how many bytes were streamed. Use
+     * this for large downloads to keep memory flat regardless of body size.
+     *
+     * Streaming delivers the exact wire bytes: mog does not advertise
+     * @c Accept-Encoding and does not decode @c Content-Encoding while a writer
+     * is attached, so @ref decompress has no effect. @ref max_response_bytes is
+     * still enforced (0 = unlimited). Build a file sink with @ref FileWriter.
+     */
+    BodyWriter response_writer;
 };
+
+/**
+ * @brief Build a @ref BodyWriter that streams the response body to a file.
+ *
+ * The file at @p path is created/truncated when this function is called; a
+ * @c FileError is returned if it cannot be opened. The returned writer owns the
+ * open file (flushed and closed when the writer is destroyed). Assign it to
+ * @ref Options::response_writer and keep the Options alive for the request.
+ */
+[[nodiscard]] Result<BodyWriter> FileWriter(const std::string &path);
 
 // ---------------------------------------------------------------------------
 // Fluent helpers (mutate and return reference for chaining)

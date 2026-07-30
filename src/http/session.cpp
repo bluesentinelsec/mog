@@ -209,6 +209,11 @@ Options Session::merge_options(const Options &per_request) const
     {
         merged.connection_pool = per_request.connection_pool;
     }
+    // Streaming sink is inherently per-request; a per-request writer wins.
+    if (per_request.response_writer)
+    {
+        merged.response_writer = per_request.response_writer;
+    }
 
     return merged;
 }

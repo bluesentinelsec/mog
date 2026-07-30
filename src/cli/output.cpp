@@ -36,7 +36,11 @@ std::string FormatWriteOut(std::string_view format, const Response &response)
     ReplaceAll(fmt, "%{url_effective}", response.url);
     ReplaceAll(fmt, "%{time_total}",
                std::to_string(static_cast<double>(response.elapsed.count()) / 1000.0));
-    ReplaceAll(fmt, "%{size_download}", std::to_string(response.body.size()));
+    // Prefer the received-byte count (set for both buffered and streamed
+    // responses); fall back to body size for hand-built Response values.
+    const std::size_t size_download =
+        response.downloaded_bytes != 0 ? response.downloaded_bytes : response.body.size();
+    ReplaceAll(fmt, "%{size_download}", std::to_string(size_download));
     ReplaceAll(fmt, "%{num_redirects}", std::to_string(response.history_len));
     return fmt;
 }

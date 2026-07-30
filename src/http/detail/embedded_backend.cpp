@@ -20,10 +20,14 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace mog::detail
@@ -167,14 +171,19 @@ std::string BuildRequestMessage(Method method, const Url &url,
     return oss.str();
 }
 
-struct RawResponse
+struct ResponseHead
 {
     int status = 0;
     std::string reason;
     std::string version; ///< e.g. "HTTP/1.1" from the status line.
     std::vector<Header> headers;
-    std::string body;
+    bool bodyless = false; ///< HEAD / 204 / 304 — no entity body follows.
+    bool chunked = false;
+    std::optional<std::size_t> content_length;
 };
+
+/// Sink for response body bytes; return an Error to abort the transfer.
+using BodySink = std::function<Result<void>(const char *data, std::size_t n)>;
 
 Result<std::string> ReadUntil(Stream &stream, std::string &buffer, std::string_view delim,
                               std::chrono::milliseconds timeout, std::size_t max_bytes)
@@ -247,32 +256,20 @@ Result<void> ReadExact(Stream &stream, std::string &buffer, std::string &out, st
     return Result<void>::Ok();
 }
 
-Result<void> AppendCapped(std::string &body, const char *data, std::size_t n, std::size_t max_total)
+Result<ResponseHead> ReadResponseHead(Stream &stream, std::string &buffer, bool head_request,
+                                      std::chrono::milliseconds timeout)
 {
-    if (max_total > 0 && body.size() + n > max_total)
-    {
-        return Result<void>::Err(
-            Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
-    }
-    body.append(data, n);
-    return Result<void>::Ok();
-}
-
-Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
-                                     std::chrono::milliseconds timeout, std::size_t max_body)
-{
-    std::string buffer;
     auto header_block = ReadUntil(stream, buffer, "\r\n\r\n", timeout, 1024 * 1024);
     if (!header_block)
     {
-        return Result<RawResponse>::Err(header_block.error());
+        return Result<ResponseHead>::Err(header_block.error());
     }
 
     std::istringstream iss(*header_block);
     std::string status_line;
     if (!std::getline(iss, status_line))
     {
-        return Result<RawResponse>::Err(Error{ErrorCode::ProtocolError, "missing status line"});
+        return Result<ResponseHead>::Err(Error{ErrorCode::ProtocolError, "missing status line"});
     }
     if (!status_line.empty() && status_line.back() == '\r')
     {
@@ -281,12 +278,12 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
 
     if (status_line.rfind("HTTP/", 0) != 0)
     {
-        return Result<RawResponse>::Err(Error{ErrorCode::ProtocolError, "invalid status line"});
+        return Result<ResponseHead>::Err(Error{ErrorCode::ProtocolError, "invalid status line"});
     }
     const auto first_sp = status_line.find(' ');
     if (first_sp == std::string::npos)
     {
-        return Result<RawResponse>::Err(Error{ErrorCode::ProtocolError, "invalid status line"});
+        return Result<ResponseHead>::Err(Error{ErrorCode::ProtocolError, "invalid status line"});
     }
     const auto second_sp = status_line.find(' ', first_sp + 1);
     std::string code_str = (second_sp == std::string::npos)
@@ -298,16 +295,17 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
             std::from_chars(code_str.data(), code_str.data() + code_str.size(), status);
         if (ec != std::errc{} || ptr != code_str.data() + code_str.size())
         {
-            return Result<RawResponse>::Err(Error{ErrorCode::ProtocolError, "invalid status code"});
+            return Result<ResponseHead>::Err(
+                Error{ErrorCode::ProtocolError, "invalid status code"});
         }
     }
 
-    RawResponse resp;
-    resp.status = status;
-    resp.version = status_line.substr(0, first_sp);
+    ResponseHead head;
+    head.status = status;
+    head.version = status_line.substr(0, first_sp);
     if (second_sp != std::string::npos)
     {
-        resp.reason = status_line.substr(second_sp + 1);
+        head.reason = status_line.substr(second_sp + 1);
     }
 
     std::string line;
@@ -332,17 +330,16 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
         {
             value.erase(value.begin());
         }
-        resp.headers.push_back(Header{std::move(name), std::move(value)});
+        head.headers.push_back(Header{std::move(name), std::move(value)});
     }
 
-    if (head_request || status == 204 || status == 304)
+    head.bodyless = head_request || status == 204 || status == 304;
+    if (head.bodyless)
     {
-        return Result<RawResponse>::Ok(std::move(resp));
+        return Result<ResponseHead>::Ok(std::move(head));
     }
 
-    bool chunked = false;
-    std::optional<std::size_t> content_length;
-    for (const auto &h : resp.headers)
+    for (const auto &h : head.headers)
     {
         if (EqualsIgnoreCase(h.name, "Transfer-Encoding"))
         {
@@ -353,7 +350,7 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
             }
             if (v.find("chunked") != std::string::npos)
             {
-                chunked = true;
+                head.chunked = true;
             }
         }
         if (EqualsIgnoreCase(h.name, "Content-Length"))
@@ -363,20 +360,75 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
                 std::from_chars(h.value.data(), h.value.data() + h.value.size(), cl);
             if (ec == std::errc{} && ptr == h.value.data() + h.value.size())
             {
-                content_length = cl;
+                head.content_length = cl;
             }
         }
     }
 
-    if (chunked)
+    return Result<ResponseHead>::Ok(std::move(head));
+}
+
+// Deliver exactly `need` bytes (from `buffer` first, then the wire) to `sink`.
+Result<void> DeliverExact(Stream &stream, std::string &buffer, std::size_t need,
+                          std::chrono::milliseconds timeout, const BodySink &sink)
+{
+    while (need > 0)
     {
-        std::string body;
+        if (!buffer.empty())
+        {
+            const std::size_t take = std::min(buffer.size(), need);
+            auto w = sink(buffer.data(), take);
+            if (!w)
+            {
+                return w;
+            }
+            buffer.erase(0, take);
+            need -= take;
+            continue;
+        }
+        std::array<char, 16384> tmp{};
+        const std::size_t want = std::min(tmp.size(), need);
+        auto n = stream.ReadSome(tmp.data(), want, timeout);
+        if (!n)
+        {
+            return Result<void>::Err(n.error());
+        }
+        if (*n == 0)
+        {
+            return Result<void>::Err(Error{ErrorCode::ProtocolError, "unexpected EOF in body"});
+        }
+        auto w = sink(tmp.data(), *n);
+        if (!w)
+        {
+            return w;
+        }
+        need -= *n;
+    }
+    return Result<void>::Ok();
+}
+
+// Read the full response body per the framing in `head`, delivering bytes to
+// `sink` as they arrive. Enforces `max_body` (0 = unlimited) against the total
+// number of body bytes. Returns the total bytes delivered.
+Result<std::size_t> ReadResponseBody(Stream &stream, std::string &buffer, const ResponseHead &head,
+                                     std::chrono::milliseconds timeout, std::size_t max_body,
+                                     const BodySink &sink)
+{
+    if (head.bodyless)
+    {
+        return Result<std::size_t>::Ok(0);
+    }
+
+    std::size_t total = 0;
+
+    if (head.chunked)
+    {
         for (;;)
         {
             auto size_line = ReadUntil(stream, buffer, "\r\n", timeout, 64);
             if (!size_line)
             {
-                return Result<RawResponse>::Err(size_line.error());
+                return Result<std::size_t>::Err(size_line.error());
             }
             std::string hex = *size_line;
             const auto semi = hex.find(';');
@@ -389,7 +441,7 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
                 std::from_chars(hex.data(), hex.data() + hex.size(), chunk_size, 16);
             if (ec != std::errc{} || ptr != hex.data() + hex.size())
             {
-                return Result<RawResponse>::Err(
+                return Result<std::size_t>::Err(
                     Error{ErrorCode::ProtocolError, "invalid chunk size"});
             }
             if (chunk_size == 0)
@@ -397,14 +449,14 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
                 auto trailers = ReadUntil(stream, buffer, "\r\n", timeout, 64 * 1024);
                 if (!trailers)
                 {
-                    return Result<RawResponse>::Err(trailers.error());
+                    return Result<std::size_t>::Err(trailers.error());
                 }
                 while (!trailers->empty())
                 {
                     auto next = ReadUntil(stream, buffer, "\r\n", timeout, 64 * 1024);
                     if (!next)
                     {
-                        return Result<RawResponse>::Err(next.error());
+                        return Result<std::size_t>::Err(next.error());
                     }
                     if (next->empty())
                     {
@@ -413,56 +465,63 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
                 }
                 break;
             }
-            if (max_body > 0 && body.size() + chunk_size > max_body)
+            if (max_body > 0 && total + chunk_size > max_body)
             {
-                return Result<RawResponse>::Err(
+                return Result<std::size_t>::Err(
                     Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
             }
-            std::string chunk;
-            auto exact = ReadExact(stream, buffer, chunk, chunk_size, timeout, 0);
-            if (!exact)
+            auto delivered = DeliverExact(stream, buffer, chunk_size, timeout, sink);
+            if (!delivered)
             {
-                return Result<RawResponse>::Err(exact.error());
+                return Result<std::size_t>::Err(delivered.error());
             }
-            body += chunk;
+            total += chunk_size;
             std::string crlf;
             auto cr = ReadExact(stream, buffer, crlf, 2, timeout, 0);
             if (!cr)
             {
-                return Result<RawResponse>::Err(cr.error());
+                return Result<std::size_t>::Err(cr.error());
             }
             if (crlf != "\r\n")
             {
-                return Result<RawResponse>::Err(
+                return Result<std::size_t>::Err(
                     Error{ErrorCode::ProtocolError, "missing chunk CRLF"});
             }
         }
-        resp.body = std::move(body);
-        return Result<RawResponse>::Ok(std::move(resp));
+        return Result<std::size_t>::Ok(total);
     }
 
-    if (content_length.has_value())
+    if (head.content_length.has_value())
     {
-        if (max_body > 0 && *content_length > max_body)
+        const std::size_t cl = *head.content_length;
+        if (max_body > 0 && cl > max_body)
         {
-            return Result<RawResponse>::Err(
+            return Result<std::size_t>::Err(
                 Error{ErrorCode::ResponseTooLarge, "Content-Length exceeds max_response_bytes"});
         }
-        std::string body;
-        auto exact = ReadExact(stream, buffer, body, *content_length, timeout, max_body);
-        if (!exact)
+        auto delivered = DeliverExact(stream, buffer, cl, timeout, sink);
+        if (!delivered)
         {
-            return Result<RawResponse>::Err(exact.error());
+            return Result<std::size_t>::Err(delivered.error());
         }
-        resp.body = std::move(body);
-        return Result<RawResponse>::Ok(std::move(resp));
+        return Result<std::size_t>::Ok(cl);
     }
 
-    std::string body = std::move(buffer);
-    if (max_body > 0 && body.size() > max_body)
+    // No Content-Length and not chunked: body runs until the server closes.
+    if (!buffer.empty())
     {
-        return Result<RawResponse>::Err(
-            Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+        if (max_body > 0 && buffer.size() > max_body)
+        {
+            return Result<std::size_t>::Err(
+                Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+        }
+        auto w = sink(buffer.data(), buffer.size());
+        if (!w)
+        {
+            return Result<std::size_t>::Err(w.error());
+        }
+        total += buffer.size();
+        buffer.clear();
     }
     for (;;)
     {
@@ -470,20 +529,25 @@ Result<RawResponse> ReadHttpResponse(Stream &stream, bool head_request,
         auto n = stream.ReadSome(tmp.data(), tmp.size(), timeout);
         if (!n)
         {
-            return Result<RawResponse>::Err(n.error());
+            return Result<std::size_t>::Err(n.error());
         }
         if (*n == 0)
         {
             break;
         }
-        auto cap = AppendCapped(body, tmp.data(), *n, max_body);
-        if (!cap)
+        if (max_body > 0 && total + *n > max_body)
         {
-            return Result<RawResponse>::Err(cap.error());
+            return Result<std::size_t>::Err(
+                Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
         }
+        auto w = sink(tmp.data(), *n);
+        if (!w)
+        {
+            return Result<std::size_t>::Err(w.error());
+        }
+        total += *n;
     }
-    resp.body = std::move(body);
-    return Result<RawResponse>::Ok(std::move(resp));
+    return Result<std::size_t>::Ok(total);
 }
 
 bool IsRedirect(int status)
@@ -750,24 +814,26 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
             }
         }
 
-        auto raw = ReadHttpResponse(*stream, current_method == Method::Head, io_timeout,
-                                    options.max_response_bytes);
-        if (!raw)
+        std::string buffer;
+        auto head = ReadResponseHead(*stream, buffer, current_method == Method::Head, io_timeout);
+        if (!head)
         {
-            MOG_LOG_WARN("embedded: read failed: {}", raw.error().to_string());
-            return Result<Response>::Err(raw.error());
+            MOG_LOG_WARN("embedded: read failed: {}", head.error().to_string());
+            return Result<Response>::Err(head.error());
         }
 
-        MOG_LOG_DEBUG("embedded: status {} {} (body {} bytes, version={})", raw->status,
-                      raw->reason, raw->body.size(), raw->version);
+        MOG_LOG_DEBUG("embedded: status {} {} (version={})", head->status, head->reason,
+                      head->version);
 
         const bool can_reuse = options.keep_alive && pool != nullptr &&
-                               ResponseAllowsKeepAlive(raw->version, raw->headers);
+                               ResponseAllowsKeepAlive(head->version, head->headers);
 
-        if (options.allow_redirects && IsRedirect(raw->status))
+        // Locate a redirect target (if any) before reading the body, so the body
+        // of a followed redirect is discarded rather than streamed to the caller.
+        std::string location;
+        if (IsRedirect(head->status))
         {
-            std::string location;
-            for (const auto &h : raw->headers)
+            for (const auto &h : head->headers)
             {
                 if (EqualsIgnoreCase(h.name, "Location"))
                 {
@@ -775,49 +841,81 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
                     break;
                 }
             }
-            if (!location.empty())
-            {
-                if (can_reuse)
-                {
-                    pool->Put(conn_key, std::move(stream));
-                }
-                else
-                {
-                    stream.reset();
-                }
+        }
+        const bool following_redirect = options.allow_redirects && !location.empty();
 
-                if (redirects >= options.max_redirects)
+        // Stream to the caller's writer only for the final response body.
+        const bool stream_to_writer =
+            static_cast<bool>(options.response_writer) && !following_redirect;
+
+        std::string body_buffer;
+        BodySink sink;
+        if (stream_to_writer)
+        {
+            sink = [&options](const char *data, std::size_t n) -> Result<void> {
+                return options.response_writer(std::string_view(data, n));
+            };
+        }
+        else
+        {
+            sink = [&body_buffer](const char *data, std::size_t n) -> Result<void> {
+                body_buffer.append(data, n);
+                return Result<void>::Ok();
+            };
+        }
+
+        auto body_result =
+            ReadResponseBody(*stream, buffer, *head, io_timeout, options.max_response_bytes, sink);
+        if (!body_result)
+        {
+            MOG_LOG_WARN("embedded: body read failed: {}", body_result.error().to_string());
+            return Result<Response>::Err(body_result.error());
+        }
+        const std::size_t downloaded = *body_result;
+        MOG_LOG_DEBUG("embedded: body {} bytes (streamed={})", downloaded, stream_to_writer);
+
+        if (following_redirect)
+        {
+            if (can_reuse)
+            {
+                pool->Put(conn_key, std::move(stream));
+            }
+            else
+            {
+                stream.reset();
+            }
+
+            if (redirects >= options.max_redirects)
+            {
+                MOG_LOG_WARN("embedded: too many redirects (max={})", options.max_redirects);
+                return Result<Response>::Err(Error{
+                    ErrorCode::TooManyRedirects,
+                    "exceeded max_redirects (" + std::to_string(options.max_redirects) + ")"});
+            }
+            current_url = JoinUrl(current_url, location);
+            history.push_back(current_url);
+            current_method = MethodAfterRedirect(current_method, head->status);
+            MOG_LOG_INFO("embedded: redirect {} → {} (method now {})", head->status, current_url,
+                         ToString(current_method));
+            if (current_method == Method::Get || current_method == Method::Head)
+            {
+                body.clear();
+                for (auto it = headers.begin(); it != headers.end();)
                 {
-                    MOG_LOG_WARN("embedded: too many redirects (max={})", options.max_redirects);
-                    return Result<Response>::Err(Error{
-                        ErrorCode::TooManyRedirects,
-                        "exceeded max_redirects (" + std::to_string(options.max_redirects) + ")"});
-                }
-                current_url = JoinUrl(current_url, location);
-                history.push_back(current_url);
-                current_method = MethodAfterRedirect(current_method, raw->status);
-                MOG_LOG_INFO("embedded: redirect {} → {} (method now {})", raw->status, current_url,
-                             ToString(current_method));
-                if (current_method == Method::Get || current_method == Method::Head)
-                {
-                    body.clear();
-                    for (auto it = headers.begin(); it != headers.end();)
+                    if (EqualsIgnoreCase(it->first, "Content-Length") ||
+                        EqualsIgnoreCase(it->first, "Content-Type") ||
+                        EqualsIgnoreCase(it->first, "Transfer-Encoding"))
                     {
-                        if (EqualsIgnoreCase(it->first, "Content-Length") ||
-                            EqualsIgnoreCase(it->first, "Content-Type") ||
-                            EqualsIgnoreCase(it->first, "Transfer-Encoding"))
-                        {
-                            it = headers.erase(it);
-                        }
-                        else
-                        {
-                            ++it;
-                        }
+                        it = headers.erase(it);
+                    }
+                    else
+                    {
+                        ++it;
                     }
                 }
-                ++redirects;
-                continue;
             }
+            ++redirects;
+            continue;
         }
 
         if (can_reuse)
@@ -830,42 +928,52 @@ Result<Response> EmbeddedRequest(Method method, std::string_view url_text, const
         }
 
         Response response;
-        response.status_code = raw->status;
-        response.reason = std::move(raw->reason);
+        response.status_code = head->status;
+        response.reason = std::move(head->reason);
         response.url = current_url;
-        response.headers = std::move(raw->headers);
-        response.body = std::move(raw->body);
+        response.headers = std::move(head->headers);
         response.history_len = redirects;
         response.history = std::move(history);
         response.backend = "embedded";
-        response.cookies = CollectCookies(response.headers);
 
-        if (options.decompress && !response.body.empty())
+        if (stream_to_writer)
         {
-            std::string encoding;
-            for (const auto &h : response.headers)
+            // Body already delivered to the caller's writer; Response::body stays
+            // empty and content is left encoded as received (no auto-decompress).
+            response.downloaded_bytes = downloaded;
+        }
+        else
+        {
+            response.body = std::move(body_buffer);
+            if (options.decompress && !response.body.empty())
             {
-                if (EncodingEquals(h.name, "Content-Encoding"))
+                std::string encoding;
+                for (const auto &h : response.headers)
                 {
-                    encoding = h.value;
-                    break;
+                    if (EncodingEquals(h.name, "Content-Encoding"))
+                    {
+                        encoding = h.value;
+                        break;
+                    }
+                }
+                if (!encoding.empty())
+                {
+                    auto decoded = DecodeContentEncoding(std::move(response.body), encoding,
+                                                         options.max_response_bytes);
+                    if (!decoded)
+                    {
+                        MOG_LOG_WARN("embedded: content-encoding decode failed: {}",
+                                     decoded.error().to_string());
+                        return Result<Response>::Err(decoded.error());
+                    }
+                    response.body = std::move(*decoded);
+                    StripContentCodingHeaders(response.headers);
                 }
             }
-            if (!encoding.empty())
-            {
-                auto decoded = DecodeContentEncoding(std::move(response.body), encoding,
-                                                     options.max_response_bytes);
-                if (!decoded)
-                {
-                    MOG_LOG_WARN("embedded: content-encoding decode failed: {}",
-                                 decoded.error().to_string());
-                    return Result<Response>::Err(decoded.error());
-                }
-                response.body = std::move(*decoded);
-                StripContentCodingHeaders(response.headers);
-            }
+            response.downloaded_bytes = response.body.size();
         }
 
+        response.cookies = CollectCookies(response.headers);
         response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started);
         return Result<Response>::Ok(std::move(response));
