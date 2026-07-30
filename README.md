@@ -49,7 +49,8 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | Backend override | CLI / env / Options | `--backend`, `MOG_BACKEND` |
 | curl / WinHTTP / NSURLSession backends | planned | planned |
 | Multipart file upload | not yet | not yet |
-| HTTP/2, WebSocket, cookie domain/path | not yet | not yet |
+| Session cookie jar (domain/path/Secure) | yes | `-b` (per-request) |
+| HTTP/2, WebSocket | not yet | not yet |
 | Content-Encoding gzip/deflate | yes (miniz, static) | `--no-decompress` to disable |
 | HTTP server | deferred | deferred |
 
@@ -172,6 +173,34 @@ o.response_writer = [&](std::string_view chunk) -> mog::Result<void> {
 Streaming delivers the **exact wire bytes**: while a writer is attached mog does
 not advertise `Accept-Encoding` and does not decode `Content-Encoding`, so
 `decompress` has no effect (you get an identity body by default, like `curl -o`).
+
+### Session cookie jar
+
+`Session` keeps a cookie jar that stores `Set-Cookie` responses and replays them
+on later requests, scoped by **domain**, **path**, and the **Secure** flag —
+enough for typical login/session APIs.
+
+- **Domain** — with no `Domain` attribute the cookie is *host-only* (exact host
+  match). With `Domain=example.com` it also matches subdomains. A `Domain` the
+  request host doesn't belong to is rejected (no cross-site setting).
+- **Path** — defaults to the request's directory (RFC 6265 default-path); a
+  cookie is sent only when the request path is within its path. On a name clash,
+  the most specific (longest) path wins.
+- **Secure** — `Secure` cookies are sent only over HTTPS. `HttpOnly` is stored
+  and sent (it only restricts scripting, which doesn't apply to a client).
+- `set_cookie(name, value)` adds a manual cookie that matches any host at `/`.
+
+```cpp
+mog::Session s;
+s.get("https://api.example.com/login");   // stores Set-Cookie
+s.get("https://api.example.com/me");       // matching cookies replayed automatically
+```
+
+Intentional non-goals (kept simple on purpose): full RFC 6265 semantics,
+`SameSite`, public-suffix-list validation, expiry/`Max-Age` eviction (cookies are
+session-lifetime), and capturing `Set-Cookie` emitted on intermediate redirect
+hops (only the final response is stored). For one-shot cookies on the free
+functions, set `Options::cookies` (sent as-is, no jar).
 
 ### nlohmann/json (cppboot)
 

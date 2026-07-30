@@ -8,6 +8,7 @@ set(MOG_HTTP_TEST_SOURCES
   content_encoding_test.cpp
   ca_store_test.cpp
   streaming_test.cpp
+  cookie_jar_test.cpp
 )
 if(MOG_WITH_JSON)
   list(APPEND MOG_HTTP_TEST_SOURCES json_test.cpp)

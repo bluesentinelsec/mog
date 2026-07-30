@@ -6,8 +6,12 @@
 #include "mog/session.hpp"
 
 #include "http/detail/connection_pool.hpp"
+#include "http/detail/cookie_jar.hpp"
+#include "http/detail/url.hpp"
 #include "mog/log.hpp"
 #include "mog/version.hpp"
+
+#include <optional>
 
 namespace mog
 {
@@ -23,7 +27,8 @@ std::shared_ptr<void> MakeSessionPool()
 
 } // namespace
 
-Session::Session() : connection_pool_(MakeSessionPool())
+Session::Session()
+    : cookie_jar_(std::make_unique<detail::CookieJar>()), connection_pool_(MakeSessionPool())
 {
     defaults_.user_agent = std::string("mog/") + std::string{mog::Version()};
     defaults_.keep_alive = true;
@@ -31,7 +36,8 @@ Session::Session() : connection_pool_(MakeSessionPool())
 }
 
 Session::Session(Options defaults)
-    : defaults_(std::move(defaults)), connection_pool_(MakeSessionPool())
+    : defaults_(std::move(defaults)), cookie_jar_(std::make_unique<detail::CookieJar>()),
+      connection_pool_(MakeSessionPool())
 {
     if (defaults_.user_agent.empty())
     {
@@ -40,6 +46,8 @@ Session::Session(Options defaults)
     // Session always owns a pool; keep_alive default stays true unless caller cleared it
     // on the provided defaults (respect explicit false).
 }
+
+Session::~Session() = default;
 
 void Session::set_defaults(Options defaults)
 {
@@ -86,25 +94,29 @@ std::string Session::base_url() const
 void Session::set_cookies(std::map<std::string, std::string> cookies)
 {
     std::lock_guard lock(mutex_);
-    cookie_jar_ = std::move(cookies);
+    cookie_jar_->Clear();
+    for (const auto &c : cookies)
+    {
+        cookie_jar_->SetManual(c.first, c.second);
+    }
 }
 
 void Session::set_cookie(std::string name, std::string value)
 {
     std::lock_guard lock(mutex_);
-    cookie_jar_[std::move(name)] = std::move(value);
+    cookie_jar_->SetManual(name, value);
 }
 
 std::map<std::string, std::string> Session::cookies() const
 {
     std::lock_guard lock(mutex_);
-    return cookie_jar_;
+    return cookie_jar_->AllNameValues();
 }
 
 void Session::clear_cookies()
 {
     std::lock_guard lock(mutex_);
-    cookie_jar_.clear();
+    cookie_jar_->Clear();
 }
 
 Options Session::merge_options(const Options &per_request) const
@@ -129,14 +141,8 @@ Options Session::merge_options(const Options &per_request) const
         merged.form[f.first] = f.second;
     }
 
-    // Cookie jar underlays per-request cookies (request wins on name clash).
-    for (const auto &c : cookie_jar_)
-    {
-        if (merged.cookies.find(c.first) == merged.cookies.end())
-        {
-            merged.cookies[c.first] = c.second;
-        }
-    }
+    // Domain/path-aware cookie matching happens in request(), where the resolved
+    // request URL is known; merge_options only handles per-request option fields.
 
     if (per_request.json.has_value())
     {
@@ -249,6 +255,7 @@ Result<Response> Session::request(Method method, std::string_view url, const Opt
 {
     Options merged;
     std::string full_url;
+    std::optional<detail::Url> parsed_url;
     {
         std::lock_guard lock(mutex_);
         merged = merge_options(options);
@@ -257,8 +264,17 @@ Result<Response> Session::request(Method method, std::string_view url, const Opt
         {
             merged.connection_pool = connection_pool_;
         }
-        MOG_LOG_DEBUG("session: {} {} (jar={} cookies, base={}, keep_alive={})", ToString(method),
-                      full_url, cookie_jar_.size(), base_url_, merged.keep_alive);
+        // Attach jar cookies that match this request URL (per-request cookies win).
+        if (auto p = detail::ParseUrl(full_url))
+        {
+            parsed_url = *p;
+            for (const auto &c : cookie_jar_->CookiesFor(*parsed_url))
+            {
+                merged.cookies.emplace(c.first, c.second);
+            }
+        }
+        MOG_LOG_DEBUG("session: {} {} (base={}, keep_alive={}, cookies={})", ToString(method),
+                      full_url, base_url_, merged.keep_alive, merged.cookies.size());
     }
 
     auto result = mog::request(method, full_url, merged);
@@ -267,15 +283,10 @@ Result<Response> Session::request(Method method, std::string_view url, const Opt
         return result;
     }
 
-    if (merged.update_cookies && !result->cookies.empty())
+    if (merged.update_cookies && parsed_url.has_value())
     {
         std::lock_guard lock(mutex_);
-        for (const auto &c : result->cookies)
-        {
-            cookie_jar_[c.first] = c.second;
-        }
-        MOG_LOG_DEBUG("session: stored {} cookie(s) from response (jar size now {})",
-                      result->cookies.size(), cookie_jar_.size());
+        cookie_jar_->StoreFromResponse(*parsed_url, result->headers);
     }
     return result;
 }
