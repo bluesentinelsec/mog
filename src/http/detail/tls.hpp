@@ -17,6 +17,16 @@
 namespace mog::detail
 {
 
+/**
+ * @brief Client certificate material for mutual TLS (PEM file paths).
+ */
+struct TlsClientCert
+{
+    std::string cert_path;    ///< Client certificate (chain) PEM.
+    std::string key_path;     ///< Private-key PEM (may equal cert_path).
+    std::string key_password; ///< Passphrase for an encrypted key (empty = none).
+};
+
 class TlsSession
 {
   public:
@@ -38,6 +48,7 @@ class TlsSession
      */
     [[nodiscard]] Result<void> Handshake(TcpSocket &socket, std::string_view hostname, bool verify,
                                          const std::optional<std::string> &ca_bundle,
+                                         const std::optional<TlsClientCert> &client_cert,
                                          std::chrono::milliseconds timeout);
 
     [[nodiscard]] Result<std::size_t> Write(const void *data, std::size_t len,

@@ -156,6 +156,18 @@ Options Session::merge_options(const Options &per_request) const
     {
         merged.ca_bundle = per_request.ca_bundle;
     }
+    if (per_request.client_cert.has_value())
+    {
+        merged.client_cert = per_request.client_cert;
+    }
+    if (per_request.client_key.has_value())
+    {
+        merged.client_key = per_request.client_key;
+    }
+    if (!per_request.client_key_password.empty())
+    {
+        merged.client_key_password = per_request.client_key_password;
+    }
     if (per_request.backend.has_value())
     {
         merged.backend = per_request.backend;

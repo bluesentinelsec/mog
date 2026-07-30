@@ -211,17 +211,32 @@ Result<Prepared> PrepareRequest(const Args &args)
     {
         options.ca_bundle = args.ca_bundle;
     }
+    if (!args.client_cert.empty())
+    {
+        options.client_cert = args.client_cert;
+    }
+    if (!args.client_key.empty())
+    {
+        options.client_key = args.client_key;
+    }
+    if (!args.client_key_password.empty())
+    {
+        options.client_key_password = args.client_key_password;
+    }
 
     if (!args.user.empty())
     {
         const auto colon = args.user.find(':');
-        if (colon == std::string::npos)
+        const std::string user =
+            colon == std::string::npos ? args.user : args.user.substr(0, colon);
+        const std::string pass = colon == std::string::npos ? "" : args.user.substr(colon + 1);
+        if (args.digest)
         {
-            WithBasicAuth(options, args.user, "");
+            WithDigestAuth(options, user, pass);
         }
         else
         {
-            WithBasicAuth(options, args.user.substr(0, colon), args.user.substr(colon + 1));
+            WithBasicAuth(options, user, pass);
         }
     }
     if (!args.bearer.empty())
