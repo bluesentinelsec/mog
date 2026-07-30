@@ -6,11 +6,11 @@ It prioritizes **easy shipping**: the default backend is a static-link-friendly
 embedded HTTP/1.1 stack (sockets + [mbedTLS](https://www.trustedfirmware.org/projects/mbed-tls/)),
 so you do not need libcurl or OpenSSL installed to build or run.
 
-Platform-native backends onboard incrementally behind the same API: **macOS
-NSURLSession** (`--backend native`) and **libcurl** (Linux & macOS, loaded at
-runtime via `dlopen` — `--backend curl`) are available now, with **WinHTTP**
-(Windows) planned. The always-present **`embedded`** stack is the default and the
-API surface you should design against.
+Platform-native backends now cover every desktop OS behind the same API: **macOS
+NSURLSession** (`--backend native`), **libcurl** (Linux & macOS, loaded at runtime
+via `dlopen` — `--backend curl`), and **Windows WinHTTP** (`--backend winhttp`).
+The always-present **`embedded`** stack is the default and the API surface you
+should design against.
 
 ```bash
 mog get https://example.com
@@ -54,7 +54,7 @@ mog get https://httpbin.org/basic-auth/u/p -u u:p -f
 | Backend override | CLI / env / Options | `--backend`, `MOG_BACKEND` |
 | macOS NSURLSession backend | `Options::backend = Native` | `--backend native` |
 | libcurl backend (runtime `dlopen`) | `Options::backend = Curl` | `--backend curl` |
-| WinHTTP backend | planned | planned |
+| WinHTTP backend (Windows) | `Options::backend = WinHttp` | `--backend winhttp` |
 | Session cookie jar (domain/path/Secure) | yes | `-b` (per-request) |
 | HTTP/2, WebSocket | not yet | not yet |
 | Content-Encoding gzip/deflate | yes (miniz, static) | `--no-decompress` to disable |
@@ -319,7 +319,7 @@ method / log level, plus CLI11 parse of subcommands and repeated `-H`/`-F`).
 | Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Default; full feature set |
 | macOS NSURLSession | `native` | **Available** (explicitly selectable, conformance-tested); not yet the `Auto` default while streaming / keep-alive pooling / `max_response_bytes` / Digest / mTLS reach parity |
 | libcurl (Linux & macOS, via `dlopen`) | `curl` | **Available** when libcurl is installed; loaded at runtime (never link-time), conformance-tested; not yet the `Auto` default (same parity items) |
-| Windows WinHTTP | `winhttp` | Planned |
+| Windows WinHTTP | `winhttp` | **Available** on Windows (ships with the OS), conformance-tested; not yet the `Auto` default (same parity items) |
 
 `Auto` only switches to a native backend once that backend opts in at feature
 parity, so the default behavior never silently loses an embedded feature.
