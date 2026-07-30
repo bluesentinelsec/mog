@@ -34,6 +34,10 @@ class FakeTransport final : public Transport
     {
         return true;
     }
+    [[nodiscard]] bool AutoPreferred() const noexcept override
+    {
+        return true; // opt in so Auto selects this fake native
+    }
     [[nodiscard]] mog::Result<mog::Response> Execute(mog::Method, std::string_view,
                                                      const mog::Options &) override
     {
@@ -51,9 +55,10 @@ TEST(BackendSelection, EmbeddedIsAlwaysAvailable)
     EXPECT_TRUE(IsBackendAvailable(Backend::Embedded));
 }
 
-TEST(BackendSelection, AutoFallsBackToEmbeddedWhenNoNative)
+TEST(BackendSelection, AutoDefaultsToEmbeddedUntilNativeOptsIn)
 {
-    // Placeholders for native backends report unavailable, so Auto -> Embedded.
+    // A native backend may be Available (e.g. NSURLSession on macOS) yet not
+    // Auto-preferred until it reaches parity, so Auto keeps using embedded.
     EXPECT_EQ(ResolveAutoBackend(), Backend::Embedded);
 }
 
@@ -91,11 +96,12 @@ TEST(BackendSelection, ExplicitEmbeddedIgnoresAvailableNative)
 
 TEST(BackendSelection, UnimplementedNativeErrorsWhenSelectedExplicitly)
 {
-    // Nothing registered over the placeholder: explicit selection must fail loud.
+    // On platforms where the native backend is not yet implemented, the
+    // placeholder must fail loud when selected explicitly.
     const Backend native = PreferredNativeBackend();
-    if (native == Backend::Embedded)
+    if (native == Backend::Embedded || IsBackendAvailable(native))
     {
-        GTEST_SKIP() << "no native backend for this platform";
+        GTEST_SKIP() << "native backend implemented on this platform";
     }
     mog::Options opt;
     opt.backend = native;

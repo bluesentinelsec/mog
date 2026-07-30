@@ -4,6 +4,7 @@
  */
 
 #include "http/detail/embedded_backend.hpp"
+#include "http/detail/native_backend.hpp"
 #include "http/detail/transport.hpp"
 
 #include <array>
@@ -135,7 +136,11 @@ void EnsureDefaultTransportsRegistered()
     auto &native = reg.slots[SlotIndex(Backend::Native)];
     if (!native)
     {
-        native = std::make_unique<UnimplementedTransport>("native");
+        native = MakeNativeTransport(); // platform-native (e.g. NSURLSession on macOS)
+        if (!native)
+        {
+            native = std::make_unique<UnimplementedTransport>("native");
+        }
     }
     reg.defaults_loaded = true;
 }
@@ -162,9 +167,15 @@ bool IsBackendAvailable(Backend id)
 Backend ResolveAutoBackend()
 {
     const Backend native = PreferredNativeBackend();
-    if (native != Backend::Embedded && IsBackendAvailable(native))
+    if (native != Backend::Embedded)
     {
-        return native;
+        Transport *transport = FindTransport(native);
+        // Auto prefers a native backend only once it opts in (feature parity),
+        // not merely because it is available for explicit selection.
+        if (transport != nullptr && transport->Available() && transport->AutoPreferred())
+        {
+            return native;
+        }
     }
     return Backend::Embedded;
 }

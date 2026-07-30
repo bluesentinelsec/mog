@@ -24,6 +24,18 @@ target_sources(${PROJECT_NAME}_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/registry.cpp
 )
 
+# Platform-native backend: NSURLSession on macOS (Objective-C++), stub elsewhere.
+if(APPLE)
+  target_sources(${PROJECT_NAME}_lib
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/native_backend_apple.mm)
+  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/detail/native_backend_apple.mm
+    PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+  target_link_libraries(${PROJECT_NAME}_lib PRIVATE "-framework Foundation")
+else()
+  target_sources(${PROJECT_NAME}_lib
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/native_backend_stub.cpp)
+endif()
+
 # Private headers under src/http (detail/*).
 target_include_directories(${PROJECT_NAME}_lib
   PRIVATE
