@@ -3,6 +3,7 @@
  * @brief Transport backend registry (open for extension).
  */
 
+#include "http/detail/curl_backend.hpp"
 #include "http/detail/embedded_backend.hpp"
 #include "http/detail/native_backend.hpp"
 #include "http/detail/transport.hpp"
@@ -126,7 +127,11 @@ void EnsureDefaultTransportsRegistered()
     auto &curl = reg.slots[SlotIndex(Backend::Curl)];
     if (!curl)
     {
-        curl = std::make_unique<UnimplementedTransport>("curl");
+        curl = MakeCurlTransport(); // libcurl via dlopen where available
+        if (!curl)
+        {
+            curl = std::make_unique<UnimplementedTransport>("curl");
+        }
     }
     auto &win = reg.slots[SlotIndex(Backend::WinHttp)];
     if (!win)
