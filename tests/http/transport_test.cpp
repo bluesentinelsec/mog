@@ -43,14 +43,21 @@ TEST(TransportRegistry, EmbeddedIsRegistered)
     EXPECT_EQ(t->Name(), "embedded");
 }
 
-TEST(TransportRegistry, UnimplementedCurl)
+TEST(TransportRegistry, CurlBackendPresence)
 {
     mog::detail::EnsureDefaultTransportsRegistered();
     auto *t = mog::detail::FindTransport(mog::Backend::Curl);
     ASSERT_NE(t, nullptr);
-    auto r = t->Execute(mog::Method::Get, "https://example.com", {});
-    ASSERT_FALSE(r);
-    EXPECT_EQ(r.error().code(), mog::ErrorCode::UnsupportedBackend);
+    EXPECT_EQ(t->Name(), "curl");
+    // When libcurl is not present (or the curl backend is a placeholder), an
+    // explicit request must fail loud. When it is present, we don't hit the
+    // network here — the conformance suite covers real curl requests.
+    if (!t->Available())
+    {
+        auto r = t->Execute(mog::Method::Get, "http://127.0.0.1:9/x", {});
+        ASSERT_FALSE(r);
+        EXPECT_EQ(r.error().code(), mog::ErrorCode::UnsupportedBackend);
+    }
 }
 
 TEST(TransportRegistry, CanReplaceWithCustomTransport)
