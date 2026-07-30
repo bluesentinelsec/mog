@@ -227,16 +227,17 @@ jobs:
 
       - name: HTTPS from scratch using the bundled CA bundle (no CA file on disk)
         run: |
-          set -euo pipefail
-          # example.com is stable; retry a couple of times to absorb transient network blips.
+          set -uo pipefail
+          # -f => exit 0 only on a successful (2xx/3xx) HTTPS exchange; the TLS
+          # handshake here verifies against the compiled-in Mozilla CA bundle with
+          # no CA file on the scratch filesystem. Retry to absorb network blips.
           for attempt in 1 2 3; do
-            if docker run --rm mog-static get https://example.com \
-                 -w 'http=%{http_code}\n' -s -o /dev/null | tee out.txt | grep -q 'http=200'; then
+            if docker run --rm mog-static get https://example.com -f -s -o /dev/null; then
               echo "scratch HTTPS OK"; exit 0
             fi
             echo "attempt ${attempt} failed; retrying"; sleep 3
           done
-          echo "scratch HTTPS check failed"; cat out.txt; exit 1
+          echo "scratch HTTPS check failed"; exit 1
 
       - name: Upload static binary
         uses: actions/upload-artifact@v7
