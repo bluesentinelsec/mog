@@ -41,6 +41,19 @@ class Transport
     }
 
     /**
+     * @brief Whether @c Auto should prefer this backend over the embedded fallback.
+     *
+     * Being @ref Available (explicitly selectable + conformance-tested) is not
+     * enough: a native backend becomes auto-preferred only once it reaches
+     * feature parity and is meant to be the default. Defaults to false; the
+     * embedded fallback need not set it.
+     */
+    [[nodiscard]] virtual bool AutoPreferred() const noexcept
+    {
+        return false;
+    }
+
+    /**
      * @brief Perform one logical request (including redirects for this stack).
      */
     [[nodiscard]] virtual Result<Response> Execute(Method method, std::string_view url,

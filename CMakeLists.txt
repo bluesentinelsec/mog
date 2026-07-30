@@ -25,6 +25,11 @@ project(mog
   LANGUAGES C CXX
 )
 
+# macOS native backend is Objective-C++ (NSURLSession); enable OBJCXX there.
+if(APPLE)
+  enable_language(OBJCXX)
+endif()
+
 # True when this project is the top-level CMake project (not add_subdirectory /
 # FetchContent). Downstream consumers should not inherit app/tests/bench defaults.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
