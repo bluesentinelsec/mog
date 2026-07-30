@@ -74,6 +74,12 @@ class UnimplementedTransport final : public Transport
         return name_;
     }
 
+    // A placeholder is never a usable backend, so Auto skips it.
+    [[nodiscard]] bool Available() const noexcept override
+    {
+        return false;
+    }
+
     [[nodiscard]] Result<Response> Execute(Method, std::string_view, const Options &) override
     {
         return Result<Response>::Err(Error{ErrorCode::UnsupportedBackend,
@@ -132,6 +138,35 @@ void EnsureDefaultTransportsRegistered()
         native = std::make_unique<UnimplementedTransport>("native");
     }
     reg.defaults_loaded = true;
+}
+
+Backend PreferredNativeBackend() noexcept
+{
+#if defined(__APPLE__)
+    return Backend::Native;
+#elif defined(_WIN32)
+    return Backend::WinHttp;
+#elif defined(__linux__)
+    return Backend::Curl;
+#else
+    return Backend::Embedded;
+#endif
+}
+
+bool IsBackendAvailable(Backend id)
+{
+    Transport *transport = FindTransport(id); // ensures defaults + locks internally
+    return transport != nullptr && transport->Available();
+}
+
+Backend ResolveAutoBackend()
+{
+    const Backend native = PreferredNativeBackend();
+    if (native != Backend::Embedded && IsBackendAvailable(native))
+    {
+        return native;
+    }
+    return Backend::Embedded;
 }
 
 } // namespace mog::detail

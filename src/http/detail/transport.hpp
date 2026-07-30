@@ -29,6 +29,18 @@ class Transport
     [[nodiscard]] virtual std::string_view Name() const noexcept = 0;
 
     /**
+     * @brief Whether this backend can actually service requests in this process.
+     *
+     * Native backends return false when their library/framework is missing at
+     * runtime (e.g. libcurl not installed). @c Auto skips unavailable backends
+     * and falls back to embedded. The embedded backend is always available.
+     */
+    [[nodiscard]] virtual bool Available() const noexcept
+    {
+        return true;
+    }
+
+    /**
      * @brief Perform one logical request (including redirects for this stack).
      */
     [[nodiscard]] virtual Result<Response> Execute(Method method, std::string_view url,
@@ -52,5 +64,24 @@ void RegisterTransport(Backend id, std::unique_ptr<Transport> transport);
  * @brief Ensure built-in transports are registered (idempotent, thread-safe).
  */
 void EnsureDefaultTransportsRegistered();
+
+/**
+ * @brief The platform's preferred native backend id (Native on macOS, WinHttp on
+ *        Windows, Curl on Linux, else Embedded) — regardless of availability.
+ */
+[[nodiscard]] Backend PreferredNativeBackend() noexcept;
+
+/**
+ * @brief Whether a concrete backend is registered and reports itself available.
+ */
+[[nodiscard]] bool IsBackendAvailable(Backend id);
+
+/**
+ * @brief Concrete backend that @c Auto should use.
+ *
+ * Prefers the platform-native backend (Native on macOS, WinHttp on Windows,
+ * Curl on Linux) when it is available; otherwise falls back to @c Embedded.
+ */
+[[nodiscard]] Backend ResolveAutoBackend();
 
 } // namespace mog::detail

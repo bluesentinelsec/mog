@@ -6,6 +6,7 @@
 #include "mog/backend.hpp"
 
 #include "http/detail/env.hpp"
+#include "http/detail/transport.hpp"
 
 #include <cctype>
 #include <string>
@@ -91,25 +92,25 @@ Backend ResolveBackend(std::optional<Backend> explicit_override)
 
     if (explicit_override.has_value() && *explicit_override == Backend::Auto)
     {
-        // Explicit Auto still allows env override, then default.
+        // Explicit Auto still allows env override, then native-or-embedded.
         if (auto env = BackendFromEnvironment(); env.has_value() && *env != Backend::Auto)
         {
             return *env;
         }
-        return Backend::Embedded;
+        return detail::ResolveAutoBackend();
     }
 
-    // No explicit override: env then default.
+    // No explicit override: env then native-or-embedded.
     if (auto env = BackendFromEnvironment(); env.has_value())
     {
         if (*env == Backend::Auto)
         {
-            return Backend::Embedded;
+            return detail::ResolveAutoBackend();
         }
         return *env;
     }
 
-    return Backend::Embedded;
+    return detail::ResolveAutoBackend();
 }
 
 } // namespace mog
