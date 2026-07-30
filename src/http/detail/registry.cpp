@@ -7,6 +7,7 @@
 #include "http/detail/embedded_backend.hpp"
 #include "http/detail/native_backend.hpp"
 #include "http/detail/transport.hpp"
+#include "http/detail/winhttp_backend.hpp"
 
 #include <array>
 #include <mutex>
@@ -136,7 +137,11 @@ void EnsureDefaultTransportsRegistered()
     auto &win = reg.slots[SlotIndex(Backend::WinHttp)];
     if (!win)
     {
-        win = std::make_unique<UnimplementedTransport>("winhttp");
+        win = MakeWinHttpTransport(); // WinHTTP on Windows
+        if (!win)
+        {
+            win = std::make_unique<UnimplementedTransport>("winhttp");
+        }
     }
     auto &native = reg.slots[SlotIndex(Backend::Native)];
     if (!native)

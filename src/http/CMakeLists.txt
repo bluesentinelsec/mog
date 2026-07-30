@@ -36,6 +36,16 @@ else()
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/curl_backend.cpp)
 endif()
 
+# WinHTTP backend on Windows (ships with the OS); stub elsewhere.
+if(WIN32)
+  target_sources(${PROJECT_NAME}_lib
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/winhttp_backend.cpp)
+  target_link_libraries(${PROJECT_NAME}_lib PRIVATE winhttp)
+else()
+  target_sources(${PROJECT_NAME}_lib
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/winhttp_backend_stub.cpp)
+endif()
+
 # Platform-native backend: NSURLSession on macOS (Objective-C++), stub elsewhere.
 if(APPLE)
   target_sources(${PROJECT_NAME}_lib
