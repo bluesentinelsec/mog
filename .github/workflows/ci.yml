@@ -18,12 +18,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+        include:
+          - os: ubuntu-latest
+            enforce_backends: "embedded,curl"
+          - os: macos-latest
+            enforce_backends: "embedded,native,curl"
+          - os: windows-latest
+            enforce_backends: "embedded,winhttp"
     env:
       APP_NAME: mog
+      # Fail CI if a backend expected on this OS is not actually available
+      # (turns the *IfAvailable conformance skips into hard failures).
+      MOG_CI_ENFORCE_BACKENDS: ${{ matrix.enforce_backends }}
 
     defaults:
       run:
