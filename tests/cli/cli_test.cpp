@@ -9,13 +9,16 @@
 
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <string>
 #include <utility>
 #include <vector>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#include <process.h> // _getpid
+#else
 #include <stdlib.h>
 #include <unistd.h>
 #endif
@@ -56,11 +59,16 @@ mog::cli::Prepared MustPrepare(mog::cli::Args args)
 std::string TempFile(const std::string &contents)
 {
 #if defined(_WIN32)
+    // gtest_discover_tests runs each test as its own process, so a per-process
+    // counter alone collides across tests under parallel ctest. Qualify the name
+    // with the PID and place it in the temp dir (not the CWD) to stay unique.
     static int n = 0;
-    std::string win = "mog_cli_test_" + std::to_string(n++) + ".tmp";
-    std::ofstream out(win, std::ios::binary);
+    const std::string name =
+        "mog_cli_test_" + std::to_string(_getpid()) + "_" + std::to_string(n++) + ".tmp";
+    const std::string path = (std::filesystem::temp_directory_path() / name).string();
+    std::ofstream out(path, std::ios::binary);
     out << contents;
-    return win;
+    return path;
 #else
     char path[] = "/tmp/mog_cli_test_XXXXXX";
     const int fd = mkstemp(path);
