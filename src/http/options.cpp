@@ -6,6 +6,8 @@
 #include "mog/options.hpp"
 
 #include <cctype>
+#include <fstream>
+#include <memory>
 #include <string>
 
 namespace mog
@@ -80,6 +82,27 @@ std::optional<Method> ParseMethod(std::string_view text)
         return Method::Options;
     }
     return std::nullopt;
+}
+
+Result<BodyWriter> FileWriter(const std::string &path)
+{
+    auto file = std::make_shared<std::ofstream>(path, std::ios::binary | std::ios::trunc);
+    if (!file->is_open())
+    {
+        return Result<BodyWriter>::Err(
+            Error{ErrorCode::FileError, "failed to open output file: " + path});
+    }
+
+    BodyWriter writer = [file, path](std::string_view data) -> Result<void> {
+        file->write(data.data(), static_cast<std::streamsize>(data.size()));
+        if (!file->good())
+        {
+            return Result<void>::Err(
+                Error{ErrorCode::FileError, "failed to write output file: " + path});
+        }
+        return Result<void>::Ok();
+    };
+    return Result<BodyWriter>::Ok(std::move(writer));
 }
 
 } // namespace mog

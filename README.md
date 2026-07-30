@@ -138,10 +138,40 @@ int main() {
 | `proxy` | `http://host:port` |
 | `max_response_bytes` | Body size cap (default 64 MiB; decoded size when decompressing) |
 | `decompress` | Decode Content-Encoding gzip/deflate (default true) |
+| `response_writer` | Stream body to a sink instead of buffering (see below) |
 | `backend` | Optional backend override |
 | `user_agent` | Default User-Agent if not set |
 
 Body precedence: **`json` > `form` > `body`**.
+
+### Streaming downloads
+
+For large responses, set `Options::response_writer` to deliver the body
+incrementally instead of buffering it into `Response::body` (which then stays
+empty). `Response::downloaded_bytes` reports how many bytes were streamed.
+Memory stays flat regardless of body size, and `max_response_bytes` is still
+enforced (0 = unlimited). Works with both `Content-Length` and chunked bodies;
+only the final response streams (redirect bodies are skipped).
+
+```cpp
+// To a file (helper opens/truncates it and returns a writer):
+auto writer = mog::FileWriter("big.iso");
+if (!writer) { /* FileError */ }
+mog::Options opts;
+opts.response_writer = std::move(*writer);
+auto r = mog::get("https://example.com/big.iso", opts);   // r->body is empty
+
+// Or to any sink via a callback (return an Error to abort):
+mog::Options o;
+o.response_writer = [&](std::string_view chunk) -> mog::Result<void> {
+    hasher.update(chunk);
+    return mog::Result<void>::Ok();
+};
+```
+
+Streaming delivers the **exact wire bytes**: while a writer is attached mog does
+not advertise `Accept-Encoding` and does not decode `Content-Encoding`, so
+`decompress` has no effect (you get an identity body by default, like `curl -o`).
 
 ### nlohmann/json (cppboot)
 
@@ -250,7 +280,7 @@ mog [options] URL
 | `--max-redirs N` | Max redirects (default 5) |
 | `--no-location` | Do not follow redirects |
 | `-k` | Insecure TLS |
-| `-o FILE` | Write body to file |
+| `-o FILE` | Write body to file (streamed to disk; identity encoding, like `curl -o`) |
 | `-D FILE` | Dump response headers to file |
 | `-i` | Include headers in body output |
 | `-f` | Fail on HTTP 4xx/5xx (exit 22) |

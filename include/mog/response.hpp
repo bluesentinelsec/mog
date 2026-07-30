@@ -7,6 +7,7 @@
 #include "mog/error.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <map>
 #include <string>
 #include <string_view>
@@ -40,6 +41,10 @@ class Response
     /// Ordered header list (preserves duplicates such as multiple Set-Cookie).
     std::vector<Header> headers;
     std::string body;
+    /// Number of body bytes received: @c body.size() for buffered responses, or
+    /// the count streamed to @c Options::response_writer when streaming (in which
+    /// case @c body is empty).
+    std::size_t downloaded_bytes = 0;
     /// Number of redirects followed to produce this response.
     int history_len = 0;
     /// Redirect chain (each Location target resolved), excluding the original URL.

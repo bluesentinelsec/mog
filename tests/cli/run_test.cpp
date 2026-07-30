@@ -4,9 +4,14 @@
  */
 
 #include "mog/cli.hpp"
+#include "test_support/local_http_server.hpp"
 
+#include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <sstream>
+#include <string>
 
 TEST(CliRun, PrepareErrorInvalidBackend)
 {
@@ -77,4 +82,47 @@ TEST(CliOutput, HeadSkipsBody)
     std::ostringstream out;
     ASSERT_TRUE(mog::cli::WriteResponseOutput(p, r, out));
     EXPECT_EQ(out.str().find("secret"), std::string::npos);
+}
+
+TEST(CliRun, OutputFileStreamsBody)
+{
+    mog::test::LocalHttpServer server;
+    std::string payload;
+    payload.reserve(128 * 1024);
+    for (std::size_t i = 0; i < 128 * 1024; ++i)
+    {
+        payload.push_back(static_cast<char>('a' + static_cast<int>(i % 26)));
+    }
+    server.SetResponse(200, payload);
+
+    const auto path = std::filesystem::temp_directory_path() / "mog_cli_stream_out.bin";
+    std::filesystem::remove(path);
+
+    mog::cli::Args args;
+    args.url = server.origin() + "/dl";
+    args.output = path.string();
+    args.write_out = "%{size_download}";
+    args.silent = true;
+
+    std::ostringstream err;
+    mog::cli::Streams streams;
+    std::ostringstream out;
+    streams.out = &out;
+    streams.err = &err;
+
+    const int code = mog::cli::Run(args, streams);
+    EXPECT_EQ(code, 0);
+
+    std::string file_contents;
+    {
+        std::ifstream in(path, std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        file_contents = ss.str();
+    } // close the read handle before remove() — Windows locks open files
+    EXPECT_EQ(file_contents, payload);
+    EXPECT_TRUE(out.str().empty());                       // body went to the file, not stdout
+    EXPECT_EQ(err.str(), std::to_string(payload.size())); // -w size_download
+
+    std::filesystem::remove(path);
 }
