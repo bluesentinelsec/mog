@@ -8,6 +8,7 @@
  */
 
 #include "mog/mog.hpp"
+#include "test_support/embedded_backend_fixture.hpp"
 #include "test_support/local_http_server.hpp"
 
 #include <cctype>
@@ -98,7 +99,10 @@ bool HeaderEqualsCI(const std::map<std::string, std::string> &headers, std::stri
 // Status codes & raise_for_status
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, Status200ContentLength)
+// EmbeddedConformance validates the embedded backend specifically (pinned via fixture).
+using EmbeddedConformance = mog::test::EmbeddedBackend;
+
+TEST_F(EmbeddedConformance, Status200ContentLength)
 {
     LocalHttpServer server;
     server.SetResponse(200, "hello contract", {{"X-Contract", "yes"}});
@@ -115,7 +119,7 @@ TEST(EmbeddedConformance, Status200ContentLength)
     EXPECT_TRUE(raised);
 }
 
-TEST(EmbeddedConformance, Status204NoBody)
+TEST_F(EmbeddedConformance, Status204NoBody)
 {
     LocalHttpServer server;
     server.SetResponse(204, "");
@@ -127,7 +131,7 @@ TEST(EmbeddedConformance, Status204NoBody)
     EXPECT_TRUE(r->ok());
 }
 
-TEST(EmbeddedConformance, Status404RaiseForStatus)
+TEST_F(EmbeddedConformance, Status404RaiseForStatus)
 {
     LocalHttpServer server;
     server.SetResponse(404, "missing");
@@ -141,7 +145,7 @@ TEST(EmbeddedConformance, Status404RaiseForStatus)
     EXPECT_EQ(check.error().code(), mog::ErrorCode::HttpStatus);
 }
 
-TEST(EmbeddedConformance, Status500RaiseForStatus)
+TEST_F(EmbeddedConformance, Status500RaiseForStatus)
 {
     LocalHttpServer server;
     server.SetResponse(500, "boom");
@@ -157,7 +161,7 @@ TEST(EmbeddedConformance, Status500RaiseForStatus)
 // Bodies: chunked, empty, HEAD
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, ChunkedTransferEncoding)
+TEST_F(EmbeddedConformance, ChunkedTransferEncoding)
 {
     LocalHttpServer server;
     server.SetResponse(200, "chunked-body-payload", {}, /*chunked=*/true);
@@ -168,7 +172,7 @@ TEST(EmbeddedConformance, ChunkedTransferEncoding)
     EXPECT_EQ(r->text(), "chunked-body-payload");
 }
 
-TEST(EmbeddedConformance, EmptyBodyContentLengthZero)
+TEST_F(EmbeddedConformance, EmptyBodyContentLengthZero)
 {
     LocalHttpServer server;
     server.SetResponse(200, "");
@@ -179,7 +183,7 @@ TEST(EmbeddedConformance, EmptyBodyContentLengthZero)
     EXPECT_TRUE(r->body.empty());
 }
 
-TEST(EmbeddedConformance, HeadHasNoBody)
+TEST_F(EmbeddedConformance, HeadHasNoBody)
 {
     LocalHttpServer server;
     server.SetResponse(200, "should-not-be-read");
@@ -195,7 +199,7 @@ TEST(EmbeddedConformance, HeadHasNoBody)
 // Redirects (301/302/303/307/308) and method changes
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, Redirect302GetFollow)
+TEST_F(EmbeddedConformance, Redirect302GetFollow)
 {
     LocalHttpServer server;
     server.SetPathRule("/start", "REDIRECT:/final");
@@ -209,7 +213,7 @@ TEST(EmbeddedConformance, Redirect302GetFollow)
     EXPECT_EQ(r->url, server.origin() + "/final");
 }
 
-TEST(EmbeddedConformance, Redirect301PostBecomesGet)
+TEST_F(EmbeddedConformance, Redirect301PostBecomesGet)
 {
     LocalHttpServer server;
     HttpResponseSpec redir;
@@ -232,7 +236,7 @@ TEST(EmbeddedConformance, Redirect301PostBecomesGet)
     EXPECT_TRUE(hist[1].body.empty());
 }
 
-TEST(EmbeddedConformance, Redirect302PostBecomesGet)
+TEST_F(EmbeddedConformance, Redirect302PostBecomesGet)
 {
     LocalHttpServer server;
     HttpResponseSpec redir;
@@ -251,7 +255,7 @@ TEST(EmbeddedConformance, Redirect302PostBecomesGet)
     EXPECT_EQ(hist[1].method, "GET");
 }
 
-TEST(EmbeddedConformance, Redirect303AlwaysGet)
+TEST_F(EmbeddedConformance, Redirect303AlwaysGet)
 {
     LocalHttpServer server;
     HttpResponseSpec redir;
@@ -270,7 +274,7 @@ TEST(EmbeddedConformance, Redirect303AlwaysGet)
     EXPECT_EQ(hist[1].method, "GET");
 }
 
-TEST(EmbeddedConformance, Redirect307PreservesPost)
+TEST_F(EmbeddedConformance, Redirect307PreservesPost)
 {
     LocalHttpServer server;
     HttpResponseSpec redir;
@@ -291,7 +295,7 @@ TEST(EmbeddedConformance, Redirect307PreservesPost)
     EXPECT_EQ(hist[1].body, "keep-me");
 }
 
-TEST(EmbeddedConformance, Redirect308PreservesPost)
+TEST_F(EmbeddedConformance, Redirect308PreservesPost)
 {
     LocalHttpServer server;
     HttpResponseSpec redir;
@@ -310,7 +314,7 @@ TEST(EmbeddedConformance, Redirect308PreservesPost)
     EXPECT_EQ(hist[1].body, "data");
 }
 
-TEST(EmbeddedConformance, RedirectMaxExceeded)
+TEST_F(EmbeddedConformance, RedirectMaxExceeded)
 {
     LocalHttpServer server;
     // Loop: /a -> /b -> /a ...
@@ -330,7 +334,7 @@ TEST(EmbeddedConformance, RedirectMaxExceeded)
     EXPECT_EQ(r.error().code(), mog::ErrorCode::TooManyRedirects);
 }
 
-TEST(EmbeddedConformance, RedirectDisabledReturns3xx)
+TEST_F(EmbeddedConformance, RedirectDisabledReturns3xx)
 {
     LocalHttpServer server;
     HttpResponseSpec redir;
@@ -352,7 +356,7 @@ TEST(EmbeddedConformance, RedirectDisabledReturns3xx)
 // Timeouts / connect failures
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, ConnectFailureRefusedPort)
+TEST_F(EmbeddedConformance, ConnectFailureRefusedPort)
 {
     // Nothing listens on this port (server not started on it).
     mog::Options opt;
@@ -367,7 +371,7 @@ TEST(EmbeddedConformance, ConnectFailureRefusedPort)
         << r.error().to_string();
 }
 
-TEST(EmbeddedConformance, TimeoutOnSlowServer)
+TEST_F(EmbeddedConformance, TimeoutOnSlowServer)
 {
     // Server that accepts but never completes headers — use a one-shot accept
     // that sleeps. Simpler: connect to a non-responsive open port is hard without
@@ -389,7 +393,7 @@ TEST(EmbeddedConformance, TimeoutOnSlowServer)
 // Limits
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, MaxResponseBytesContentLength)
+TEST_F(EmbeddedConformance, MaxResponseBytesContentLength)
 {
     LocalHttpServer server;
     server.SetResponse(200, std::string(2000, 'x'));
@@ -400,7 +404,7 @@ TEST(EmbeddedConformance, MaxResponseBytesContentLength)
     EXPECT_EQ(r.error().code(), mog::ErrorCode::ResponseTooLarge);
 }
 
-TEST(EmbeddedConformance, MaxResponseBytesChunked)
+TEST_F(EmbeddedConformance, MaxResponseBytesChunked)
 {
     LocalHttpServer server;
     server.SetResponse(200, std::string(1500, 'y'), {}, /*chunked=*/true);
@@ -415,7 +419,7 @@ TEST(EmbeddedConformance, MaxResponseBytesChunked)
 // Auth headers on the wire
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, BasicAuthHeaderOnWire)
+TEST_F(EmbeddedConformance, BasicAuthHeaderOnWire)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok");
@@ -430,7 +434,7 @@ TEST(EmbeddedConformance, BasicAuthHeaderOnWire)
     EXPECT_TRUE(HeaderEqualsCI(server.Last().headers, "Authorization", expected));
 }
 
-TEST(EmbeddedConformance, BearerAuthHeaderOnWire)
+TEST_F(EmbeddedConformance, BearerAuthHeaderOnWire)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok");
@@ -443,7 +447,7 @@ TEST(EmbeddedConformance, BearerAuthHeaderOnWire)
     EXPECT_TRUE(HeaderEqualsCI(server.Last().headers, "Authorization", "Bearer tok-xyz"));
 }
 
-TEST(EmbeddedConformance, MissingAuthYields401)
+TEST_F(EmbeddedConformance, MissingAuthYields401)
 {
     LocalHttpServer server;
     server.SetResponse(200, "secret");
@@ -458,7 +462,7 @@ TEST(EmbeddedConformance, MissingAuthYields401)
 // Content-Encoding (gzip)
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, GzipDecodedByDefault)
+TEST_F(EmbeddedConformance, GzipDecodedByDefault)
 {
     LocalHttpServer server;
     const std::string plain = "conformance-gzip";
@@ -470,7 +474,7 @@ TEST(EmbeddedConformance, GzipDecodedByDefault)
     EXPECT_TRUE(r->header("Content-Encoding").empty());
 }
 
-TEST(EmbeddedConformance, GzipLeftEncodedWhenDecompressDisabled)
+TEST_F(EmbeddedConformance, GzipLeftEncodedWhenDecompressDisabled)
 {
     LocalHttpServer server;
     const std::string plain = "raw";
@@ -489,7 +493,7 @@ TEST(EmbeddedConformance, GzipLeftEncodedWhenDecompressDisabled)
 // Backend identity
 // ---------------------------------------------------------------------------
 
-TEST(EmbeddedConformance, DefaultBackendIsEmbedded)
+TEST_F(EmbeddedConformance, DefaultBackendIsEmbedded)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok");
@@ -498,7 +502,7 @@ TEST(EmbeddedConformance, DefaultBackendIsEmbedded)
     EXPECT_EQ(r->backend, "embedded");
 }
 
-TEST(EmbeddedConformance, SessionUsesEmbeddedContract)
+TEST_F(EmbeddedConformance, SessionUsesEmbeddedContract)
 {
     LocalHttpServer server;
     server.SetResponse(200, "session-ok");

@@ -220,9 +220,57 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-linux-static:
+    name: build-linux-static (alpine/musl)
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      APP_NAME: mog
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build fully static musl binary
+        run: docker build -f docker/Dockerfile.linux-static -t mog-static .
+
+      - name: Extract, verify static + version
+        run: |
+          set -euo pipefail
+          cid="$(docker create mog-static --version)"
+          docker cp "${cid}:/mog" mog
+          docker rm "${cid}" >/dev/null
+          file mog
+          file mog | grep -q "statically linked"
+          out="$(docker run --rm mog-static --version 2>&1 || true)"
+          echo "Binary --version output: ${out}"
+          if ! echo "${out}" | grep -Eq "(^|[[:space:]])${RELEASE_VERSION}([[:space:]]|$)"; then
+            echo "Static binary version mismatch: expected ${RELEASE_VERSION}, got: ${out}"
+            exit 1
+          fi
+
+      - name: Package static zip
+        id: pkg
+        run: |
+          set -euo pipefail
+          stem="${APP_NAME}-linux-x86_64-static-${RELEASE_VERSION}"
+          mkdir -p "dist/${stem}"
+          cp mog "dist/${stem}/mog"
+          (cd dist && zip -r "${stem}.zip" "${stem}" >/dev/null)
+          echo "artifact_name=${stem}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_path=dist/${stem}.zip" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload static zip (workflow artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.pkg.outputs.artifact_name }}
+          path: ${{ steps.pkg.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Publish GitHub Release
-    needs: [prepare, build]
+    needs: [prepare, build, build-linux-static]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

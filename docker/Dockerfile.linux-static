@@ -1,0 +1,25 @@
+# Fully static (musl) mog for scratch / minimal images.
+#
+# Alpine uses musl libc, whose resolver is built in (no NSS dlopen), so a
+# -static build is genuinely self-contained: C runtime, C++ runtime, mbedTLS,
+# and the embedded Mozilla CA bundle are all baked into one binary. The result
+# runs on `FROM scratch` with nothing else on the filesystem.
+
+# Stage 1: build the static binary.
+FROM alpine:3.20 AS build
+RUN apk add --no-cache build-base cmake ninja git linux-headers perl python3
+WORKDIR /src
+COPY . .
+RUN cmake -S . -B build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DMOG_BUILD_TESTS=OFF -DMOG_BUILD_BENCHMARKS=OFF -DMOG_BUILD_APP=ON \
+      -DCMAKE_EXE_LINKER_FLAGS="-static" \
+ && cmake --build build --target mog_app --parallel \
+ && strip build/bin/mog
+# Fail the build if the binary is not fully static.
+RUN file build/bin/mog && file build/bin/mog | grep -q "statically linked"
+
+# Stage 2: nothing but the binary.
+FROM scratch
+COPY --from=build /src/build/bin/mog /mog
+ENTRYPOINT ["/mog"]

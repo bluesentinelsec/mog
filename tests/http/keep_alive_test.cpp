@@ -4,13 +4,17 @@
  */
 
 #include "mog/mog.hpp"
+#include "test_support/embedded_backend_fixture.hpp"
 #include "test_support/local_http_server.hpp"
 
 #include <gtest/gtest.h>
 
 using mog::test::LocalHttpServer;
 
-TEST(KeepAlive, SessionReusesConnection)
+// KeepAlive validates the embedded backend specifically (pinned via fixture).
+using KeepAlive = mog::test::EmbeddedBackend;
+
+TEST_F(KeepAlive, SessionReusesConnection)
 {
     LocalHttpServer server;
     server.SetResponse(200, "one", {}, /*chunked=*/false, /*keep_alive=*/true);
@@ -32,7 +36,7 @@ TEST(KeepAlive, SessionReusesConnection)
     EXPECT_EQ(server.History()[1].method, "GET");
 }
 
-TEST(KeepAlive, FreeFunctionsDoNotPoolByDefault)
+TEST_F(KeepAlive, FreeFunctionsDoNotPoolByDefault)
 {
     LocalHttpServer server;
     server.SetResponse(200, "x", {}, false, true);
@@ -46,7 +50,7 @@ TEST(KeepAlive, FreeFunctionsDoNotPoolByDefault)
     EXPECT_EQ(server.connection_count(), 2U);
 }
 
-TEST(KeepAlive, SessionKeepAliveDisabledUsesNewConnections)
+TEST_F(KeepAlive, SessionKeepAliveDisabledUsesNewConnections)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok", {}, false, true);
@@ -61,7 +65,7 @@ TEST(KeepAlive, SessionKeepAliveDisabledUsesNewConnections)
     EXPECT_EQ(server.connection_count(), 2U);
 }
 
-TEST(KeepAlive, ServerConnectionClosePreventsReuse)
+TEST_F(KeepAlive, ServerConnectionClosePreventsReuse)
 {
     LocalHttpServer server;
     // Server closes after each response.
@@ -75,7 +79,7 @@ TEST(KeepAlive, ServerConnectionClosePreventsReuse)
     EXPECT_EQ(server.connection_count(), 2U);
 }
 
-TEST(KeepAlive, SessionSendsKeepAliveHeader)
+TEST_F(KeepAlive, SessionSendsKeepAliveHeader)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok", {}, false, true);
@@ -96,7 +100,7 @@ TEST(KeepAlive, SessionSendsKeepAliveHeader)
     EXPECT_TRUE(saw);
 }
 
-TEST(KeepAlive, RedirectsStillFollowedByDefaultOnSession)
+TEST_F(KeepAlive, RedirectsStillFollowedByDefaultOnSession)
 {
     LocalHttpServer server;
     server.SetPathRule("/start", "REDIRECT:/end");

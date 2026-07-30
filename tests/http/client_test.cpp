@@ -4,6 +4,7 @@
  */
 
 #include "mog/mog.hpp"
+#include "test_support/embedded_backend_fixture.hpp"
 #include "test_support/local_http_server.hpp"
 
 #include <cstdint>
@@ -55,7 +56,10 @@ std::string MakeGzipBody(std::string_view plain)
     return out;
 }
 
-TEST(ClientTest, GetOk)
+// ClientTest validates the embedded backend specifically (pinned via fixture).
+using ClientTest = mog::test::EmbeddedBackend;
+
+TEST_F(ClientTest, GetOk)
 {
     LocalHttpServer server;
     server.SetResponse(200, "hello world", {{"X-Test", "1"}});
@@ -71,7 +75,7 @@ TEST(ClientTest, GetOk)
     EXPECT_EQ(server.Last().target, "/path");
 }
 
-TEST(ClientTest, GzipBodyIsDecoded)
+TEST_F(ClientTest, GzipBodyIsDecoded)
 {
     LocalHttpServer server;
     const std::string plain = "hello compressed world";
@@ -96,7 +100,7 @@ TEST(ClientTest, GzipBodyIsDecoded)
     EXPECT_TRUE(saw_accept);
 }
 
-TEST(ClientTest, DecompressCanBeDisabled)
+TEST_F(ClientTest, DecompressCanBeDisabled)
 {
     LocalHttpServer server;
     const std::string plain = "raw-bytes";
@@ -111,7 +115,7 @@ TEST(ClientTest, DecompressCanBeDisabled)
     EXPECT_EQ(r->header("Content-Encoding"), "gzip");
 }
 
-TEST(ClientTest, PostJson)
+TEST_F(ClientTest, PostJson)
 {
     LocalHttpServer server;
     server.SetResponse(201, "{\"ok\":true}");
@@ -135,7 +139,7 @@ TEST(ClientTest, PostJson)
     EXPECT_TRUE(saw_ct);
 }
 
-TEST(ClientTest, PostForm)
+TEST_F(ClientTest, PostForm)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok");
@@ -148,7 +152,7 @@ TEST(ClientTest, PostForm)
     EXPECT_NE(server.Last().body.find("x=1"), std::string::npos);
 }
 
-TEST(ClientTest, BasicAuth)
+TEST_F(ClientTest, BasicAuth)
 {
     LocalHttpServer server;
     server.SetResponse(200, "secret");
@@ -163,7 +167,7 @@ TEST(ClientTest, BasicAuth)
     EXPECT_EQ(r->text(), "secret");
 }
 
-TEST(ClientTest, BearerAuth)
+TEST_F(ClientTest, BearerAuth)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok");
@@ -176,7 +180,7 @@ TEST(ClientTest, BearerAuth)
     EXPECT_EQ(r->status_code, 200);
 }
 
-TEST(ClientTest, QueryParams)
+TEST_F(ClientTest, QueryParams)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok");
@@ -189,7 +193,7 @@ TEST(ClientTest, QueryParams)
     EXPECT_NE(server.Last().target.find("n=1"), std::string::npos);
 }
 
-TEST(ClientTest, CookiesRoundTrip)
+TEST_F(ClientTest, CookiesRoundTrip)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok", {{"Set-Cookie", "sid=abc; Path=/"}, {"Set-Cookie", "x=1"}});
@@ -205,7 +209,7 @@ TEST(ClientTest, CookiesRoundTrip)
     EXPECT_FALSE(r->cookies.empty());
 }
 
-TEST(ClientTest, SessionCookieJar)
+TEST_F(ClientTest, SessionCookieJar)
 {
     LocalHttpServer server;
     server.SetResponse(200, "ok", {{"Set-Cookie", "session=xyz"}});
@@ -231,7 +235,7 @@ TEST(ClientTest, SessionCookieJar)
     EXPECT_TRUE(found);
 }
 
-TEST(ClientTest, RedirectFollow)
+TEST_F(ClientTest, RedirectFollow)
 {
     LocalHttpServer server;
     server.SetPathRule("/start", "REDIRECT:/final");
@@ -245,7 +249,7 @@ TEST(ClientTest, RedirectFollow)
     EXPECT_EQ(r->url, server.origin() + "/final");
 }
 
-TEST(ClientTest, RaiseForStatus)
+TEST_F(ClientTest, RaiseForStatus)
 {
     LocalHttpServer server;
     server.SetResponse(404, "missing");
@@ -256,7 +260,7 @@ TEST(ClientTest, RaiseForStatus)
     EXPECT_EQ(check.error().code(), mog::ErrorCode::HttpStatus);
 }
 
-TEST(ClientTest, MaxResponseBytes)
+TEST_F(ClientTest, MaxResponseBytes)
 {
     LocalHttpServer server;
     server.SetResponse(200, std::string(1000, 'x'));

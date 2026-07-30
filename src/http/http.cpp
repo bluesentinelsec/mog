@@ -16,7 +16,9 @@ Result<Response> request(Method method, std::string_view url, const Options &opt
 {
     detail::EnsureDefaultTransportsRegistered();
 
-    const Backend backend = ResolveBackend(options.backend);
+    // Auto prefers the platform-native backend when it can serve this request,
+    // else falls back to embedded (capability-aware); explicit selection is exact.
+    const Backend backend = detail::SelectBackend(options);
     MOG_LOG_INFO("request {} {} (backend={})", ToString(method), url, ToString(backend));
 
     detail::Transport *transport = detail::FindTransport(backend);

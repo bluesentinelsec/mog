@@ -174,6 +174,30 @@ class AppleNativeTransport final : public Transport
         return true;
     }
 
+    [[nodiscard]] bool AutoPreferred() const noexcept override
+    {
+        return true;
+    }
+
+    // NSURLSession here does not implement streaming, Digest, or PEM CA/mTLS;
+    // Auto falls back to embedded for those.
+    [[nodiscard]] bool Supports(const Options &options) const noexcept override
+    {
+        if (options.response_writer)
+        {
+            return false;
+        }
+        if (options.auth.kind == Auth::Kind::Digest)
+        {
+            return false;
+        }
+        if (options.ca_bundle.has_value() || options.client_cert.has_value())
+        {
+            return false;
+        }
+        return true;
+    }
+
     [[nodiscard]] Result<Response> Execute(Method method, std::string_view url,
                                            const Options &options) override
     {

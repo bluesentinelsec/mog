@@ -291,6 +291,26 @@ class CurlTransport final : public Transport
         return LoadCurl().ok;
     }
 
+    [[nodiscard]] bool AutoPreferred() const noexcept override
+    {
+        return true;
+    }
+
+    // The curl backend wires CA bundle and client certs, but not streaming or the
+    // Digest challenge/retry; Auto falls back to embedded for those.
+    [[nodiscard]] bool Supports(const Options &options) const noexcept override
+    {
+        if (options.response_writer)
+        {
+            return false;
+        }
+        if (options.auth.kind == Auth::Kind::Digest)
+        {
+            return false;
+        }
+        return true;
+    }
+
     [[nodiscard]] Result<Response> Execute(Method method, std::string_view url,
                                            const Options &options) override
     {

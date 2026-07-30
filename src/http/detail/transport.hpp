@@ -54,6 +54,20 @@ class Transport
     }
 
     /**
+     * @brief Whether this backend can correctly service a request with @p options.
+     *
+     * Under @c Auto, a request needing a feature the preferred native backend does
+     * not implement (streaming @c response_writer, Digest auth, and for the
+     * NSURLSession/WinHTTP backends a PEM CA bundle or client certificate)
+     * transparently falls back to embedded. Embedded supports everything. This is
+     * ignored when a backend is selected explicitly.
+     */
+    [[nodiscard]] virtual bool Supports(const Options & /*options*/) const noexcept
+    {
+        return true;
+    }
+
+    /**
      * @brief Perform one logical request (including redirects for this stack).
      */
     [[nodiscard]] virtual Result<Response> Execute(Method method, std::string_view url,
@@ -90,11 +104,22 @@ void EnsureDefaultTransportsRegistered();
 [[nodiscard]] bool IsBackendAvailable(Backend id);
 
 /**
- * @brief Concrete backend that @c Auto should use.
+ * @brief Concrete backend that @c Auto should use (availability only).
  *
  * Prefers the platform-native backend (Native on macOS, WinHttp on Windows,
- * Curl on Linux) when it is available; otherwise falls back to @c Embedded.
+ * Curl on Linux) when it is available and auto-preferred; otherwise @c Embedded.
+ * Does not consider per-request capability — see @ref SelectBackend.
  */
 [[nodiscard]] Backend ResolveAutoBackend();
+
+/**
+ * @brief Choose the concrete backend for a specific request.
+ *
+ * Precedence: an explicit @c Options::backend (non-Auto) or @c MOG_BACKEND is
+ * honored exactly. Otherwise (Auto) the platform-native backend is used when it
+ * is available, auto-preferred, and @ref Transport::Supports the request; if any
+ * of those fail, falls back to @c Embedded.
+ */
+[[nodiscard]] Backend SelectBackend(const Options &options);
 
 } // namespace mog::detail
