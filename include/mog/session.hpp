@@ -17,6 +17,11 @@
 namespace mog
 {
 
+namespace detail
+{
+class CookieJar; // domain/path-aware storage (defined in src/http/detail)
+}
+
 /**
  * @brief Reusable client with default headers/options, cookie jar, and keep-alive.
  *
@@ -28,13 +33,16 @@ namespace mog
  * and origin pooling). Disable redirects with @c Options::allow_redirects=false
  * or CLI @c --no-location; disable pooling with @c Options::keep_alive=false.
  *
- * Cookie handling is intentionally simple (name → value, no domain/path matching).
+ * The cookie jar stores Set-Cookie responses and replays them on later requests,
+ * scoped by domain, path, and the Secure flag (simplified RFC 6265; see
+ * README "Session cookie jar" for the intentional non-goals).
  */
 class Session
 {
   public:
     Session();
     explicit Session(Options defaults);
+    ~Session(); // out-of-line: cookie_jar_ is an incomplete type here
 
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
@@ -112,7 +120,7 @@ class Session
     mutable std::mutex mutex_;
     Options defaults_;
     std::string base_url_;
-    std::map<std::string, std::string> cookie_jar_;
+    std::unique_ptr<detail::CookieJar> cookie_jar_;
     /// Shared with Options::connection_pool on each request when keep_alive is on.
     std::shared_ptr<void> connection_pool_;
 };
