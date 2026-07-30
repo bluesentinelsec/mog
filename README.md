@@ -324,6 +324,20 @@ method / log level, plus CLI11 parse of subcommands and repeated `-H`/`-F`).
 `Auto` only switches to a native backend once that backend opts in at feature
 parity, so the default behavior never silently loses an embedded feature.
 
+**The contract.** Every backend is held to one behavioral suite —
+`RunHttpContract` in `tests/http/backend_conformance_test.cpp` (methods, status,
+request/response headers, body, query, redirects) — run against each backend on
+its OS in CI. Native libraries are reached without hard-linking: **libcurl** via
+runtime `dlopen`, **WinHTTP** and **NSURLSession** via always-present system
+frameworks. CI also enforces (`MOG_CI_ENFORCE_BACKENDS`) that each OS's expected
+backend is actually available, so a native backend regressing to "unavailable"
+fails the build instead of silently skipping.
+
+**Intentional deltas** (use the embedded or curl backend when you need these):
+NSURLSession and WinHTTP don't honor a custom CA bundle or PEM client
+certificates (they use the OS trust/keychain store); WinHTTP mTLS via the
+Windows cert store and streaming/keep-alive parity are future work.
+
 ---
 
 ## CLI

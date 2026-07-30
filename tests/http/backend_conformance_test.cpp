@@ -8,12 +8,14 @@
  * parity is out of scope here (no local TLS fixture).
  */
 
+#include "http/detail/env.hpp"
 #include "http/detail/transport.hpp"
 #include "mog/mog.hpp"
 #include "test_support/local_http_server.hpp"
 
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 
 using mog::Backend;
 using mog::test::LocalHttpServer;
@@ -148,4 +150,52 @@ TEST(BackendConformance, WinHttpIfAvailable)
         GTEST_SKIP() << "winhttp backend not available";
     }
     RunHttpContract(Backend::WinHttp);
+}
+
+// CI hardening: MOG_CI_ENFORCE_BACKENDS (comma-separated names) turns the
+// "skip when unavailable" cases above into hard failures, so a native backend
+// silently regressing to unavailable on its own OS fails CI instead of quietly
+// skipping. Unset locally (and in the sanitizer job), so this skips there.
+TEST(BackendConformance, EnforcedBackendsAvailableInCi)
+{
+    const auto spec = mog::detail::GetEnv("MOG_CI_ENFORCE_BACKENDS");
+    if (!spec.has_value() || spec->empty())
+    {
+        GTEST_SKIP() << "MOG_CI_ENFORCE_BACKENDS not set";
+    }
+
+    std::vector<std::string> names;
+    std::string current;
+    for (const char c : *spec)
+    {
+        if (c == ',')
+        {
+            if (!current.empty())
+            {
+                names.push_back(current);
+            }
+            current.clear();
+        }
+        else if (c != ' ')
+        {
+            current.push_back(c);
+        }
+    }
+    if (!current.empty())
+    {
+        names.push_back(current);
+    }
+    ASSERT_FALSE(names.empty());
+
+    for (const auto &name : names)
+    {
+        const auto backend = mog::ParseBackend(name);
+        ASSERT_TRUE(backend.has_value()) << "unknown backend '" << name << "'";
+        EXPECT_TRUE(mog::detail::IsBackendAvailable(*backend))
+            << "backend '" << name << "' is expected to be available on this CI OS but is not";
+        if (mog::detail::IsBackendAvailable(*backend))
+        {
+            RunHttpContract(*backend); // and it must satisfy the contract
+        }
+    }
 }
