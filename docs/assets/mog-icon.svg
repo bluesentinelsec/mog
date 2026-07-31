@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="mog icon">
+  <defs>
+    <linearGradient id="pom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#efd07a"/>
+      <stop offset="1" stop-color="#d9a93e"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#efe9f6"/>
+    </linearGradient>
+  </defs>
+  <g stroke="#4a3d63" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
+    <!-- antenna + gold pom-pom -->
+    <path d="M128 74 C122 52 124 40 132 32" fill="none" stroke="#7a5aa0" stroke-width="7"/>
+    <circle cx="136" cy="26" r="20" fill="url(#pom)"/>
+
+    <!-- ears (white outer, purple inner) -->
+    <path d="M92 96 C78 60 96 52 116 80 Z" fill="url(#fur)"/>
+    <path d="M164 96 C178 60 160 52 140 80 Z" fill="url(#fur)"/>
+    <path d="M97 88 C90 70 99 68 108 82 Z" fill="#8a6bb2" stroke="none"/>
+    <path d="M159 88 C166 70 157 68 148 82 Z" fill="#8a6bb2" stroke="none"/>
+
+    <!-- head -->
+    <circle cx="128" cy="132" r="66" fill="url(#fur)"/>
+
+    <!-- closed happy eyes -->
+    <path d="M96 126 C104 118 112 118 118 126" fill="none" stroke-width="6"/>
+    <path d="M138 126 C144 118 152 118 160 126" fill="none" stroke-width="6"/>
+
+    <!-- nose + mouth -->
+    <path d="M122 142 h12 l-6 8 Z" fill="#e79aa0" stroke="#b76e7a" stroke-width="3"/>
+    <path d="M128 150 C122 160 112 158 110 150" fill="none" stroke-width="5"/>
+    <path d="M128 150 C134 160 144 158 146 150" fill="none" stroke-width="5"/>
+
+    <!-- blush -->
+    <ellipse cx="94" cy="150" rx="11" ry="7" fill="#e7b7d0" stroke="none" opacity="0.85"/>
+    <ellipse cx="162" cy="150" rx="11" ry="7" fill="#e7b7d0" stroke="none" opacity="0.85"/>
+
+    <!-- purple cape collar hint -->
+    <path d="M92 188 C104 202 152 202 164 188 L156 210 C144 218 112 218 100 210 Z" fill="#7a5aa0"/>
+  </g>
+</svg>

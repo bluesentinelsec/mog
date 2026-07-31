@@ -4,7 +4,7 @@ description: mog — a lightweight, static-link-friendly C++ HTTP/S client and C
 ---
 
 <div class="hero">
-  <img class="logo" src="assets/mog-logo.svg" alt="mog mascot">
+  <img class="banner" src="assets/mog-banner.png" alt="mog — a moogle delivering an HTTP/S package">
   <h1>mog</h1>
   <p class="tagline">A lightweight, static-link-friendly HTTP/S client for C++ — one binary, encrypted requests, no dependency headaches.</p>
   <div class="badges">

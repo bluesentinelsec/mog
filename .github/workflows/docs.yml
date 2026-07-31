@@ -1,10 +1,17 @@
 # Build the static docs site (docs/*.md -> HTML via pandoc) and deploy to GitHub
-# Pages. On-demand only (workflow_dispatch) so docs can ship separately from
-# numbered releases.
+# Pages. Deploys automatically when documentation changes land on main, and can
+# also be run on demand (workflow_dispatch) — independent of numbered releases.
 name: Docs
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "web/**"
+      - "scripts/build-docs.sh"
+      - ".github/workflows/docs.yml"
 
 permissions:
   contents: read

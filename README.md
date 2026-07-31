@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/mog-logo.svg" alt="mog" width="160">
+<img src="docs/assets/mog-banner.png" alt="mog — a moogle delivering an HTTP/S package" width="820">
 
 # mog
 
