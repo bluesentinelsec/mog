@@ -371,12 +371,17 @@ backend on its OS in CI, which also enforces (`MOG_CI_ENFORCE_BACKENDS`) that ea
 OS's expected backend is actually available (a regression to "unavailable" fails
 the build instead of silently skipping).
 
-**Capability fallback / deltas.** Under `Auto`, a request that needs a feature the
-native backend doesn't implement falls back to embedded automatically:
-- **Streaming** (`response_writer`) and **Digest auth** → embedded on all natives.
-- **Custom CA bundle** and **PEM client certificates (mTLS)** → embedded on
-  NSURLSession/WinHTTP (they use the OS trust/keychain store); the curl backend
-  honors both. `max_response_bytes` is enforced only by embedded.
+**Feature parity.** The native backends now match embedded on streaming
+(`response_writer`), `max_response_bytes`, and **Digest auth** (curl via libcurl,
+WinHTTP via its auth loop, NSURLSession via the auth challenge).
+
+**Capability fallback / deltas.** The one remaining difference is trust
+configuration, which is inherently backend-specific. NSURLSession and WinHTTP
+verify against the **OS trust store**, so a request that supplies a **PEM CA
+bundle** or **PEM client certificate (mTLS)** falls back under `Auto` to a
+PEM-capable backend (curl honors both; embedded honors both). This is by design,
+not a missing feature — the whole point of a native backend is to use the OS's
+own trust.
 
 Choosing a backend explicitly (`--backend`, `MOG_BACKEND`, `Options::backend`)
 disables the capability fallback — the request uses exactly that backend.

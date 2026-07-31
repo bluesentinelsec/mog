@@ -63,6 +63,9 @@ constexpr int CURLOPT_KEYPASSWD = 10026;
 constexpr int CURLOPT_PROXY = 10004;
 constexpr int CURLOPT_ACCEPT_ENCODING = 10102;
 constexpr int CURLOPT_NOSIGNAL = 99;
+constexpr int CURLOPT_HTTPAUTH = 107;
+constexpr int CURLOPT_USERPWD = 10005;
+constexpr long CURLAUTH_DIGEST = 2; // (1 << 1)
 
 // getinfo ids (CURLINFO_STRING=0x100000, CURLINFO_LONG=0x200000).
 constexpr int CURLINFO_EFFECTIVE_URL = 0x100000 + 1;
@@ -331,14 +334,8 @@ class CurlTransport final : public Transport
 
     // The curl backend wires CA bundle and client certs, but not streaming or the
     // Digest challenge/retry; Auto falls back to embedded for those.
-    [[nodiscard]] bool Supports(const Options &options) const noexcept override
-    {
-        if (options.auth.kind == Auth::Kind::Digest)
-        {
-            return false; // wired in a later slice
-        }
-        return true;
-    }
+    // The curl backend is at parity with embedded (streaming, max_response_bytes,
+    // Digest, CA bundle, client certs), so Supports() uses the default (true).
 
     [[nodiscard]] Result<Response> Execute(Method method, std::string_view url,
                                            const Options &options) override
@@ -444,6 +441,14 @@ class CurlTransport final : public Transport
         if (options.proxy.has_value() && !options.proxy->empty())
         {
             api.easy_setopt(handle, CURLOPT_PROXY, options.proxy->c_str());
+        }
+        std::string userpwd;
+        if (options.auth.kind == Auth::Kind::Digest)
+        {
+            // libcurl performs the 401 challenge/response internally.
+            api.easy_setopt(handle, CURLOPT_HTTPAUTH, CURLAUTH_DIGEST);
+            userpwd = options.auth.username + ":" + options.auth.password;
+            api.easy_setopt(handle, CURLOPT_USERPWD, userpwd.c_str());
         }
 
         const CURLcode rc = api.easy_perform(handle);

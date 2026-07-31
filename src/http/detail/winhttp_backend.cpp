@@ -245,10 +245,6 @@ class WinHttpTransport final : public Transport
     // the Windows cert store); Auto falls back to embedded for those.
     [[nodiscard]] bool Supports(const Options &options) const noexcept override
     {
-        if (options.auth.kind == Auth::Kind::Digest)
-        {
-            return false; // wired in a later slice
-        }
         // Intentional delta: WinHTTP uses the Windows cert store, so a PEM CA
         // bundle or PEM client certificate routes to a PEM-capable backend.
         if (options.ca_bundle.has_value() || options.client_cert.has_value())
@@ -355,21 +351,47 @@ class WinHttpTransport final : public Transport
                               : const_cast<LPVOID>(static_cast<LPCVOID>(prepared.body.data()));
         const DWORD body_len = static_cast<DWORD>(prepared.body.size());
 
-        if (!WinHttpSendRequest(request.get(), header_ptr, header_len, body_ptr, body_len, body_len,
-                                0))
-        {
-            return Result<Response>::Err(MapWinHttpError(GetLastError()));
-        }
-        if (!WinHttpReceiveResponse(request.get(), nullptr))
-        {
-            return Result<Response>::Err(MapWinHttpError(GetLastError()));
-        }
+        const std::wstring wuser = Utf8ToWide(options.auth.username);
+        const std::wstring wpass = Utf8ToWide(options.auth.password);
+        const bool digest = options.auth.kind == Auth::Kind::Digest;
 
         DWORD status = 0;
-        DWORD status_size = sizeof(status);
-        WinHttpQueryHeaders(request.get(), WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                            WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size,
-                            WINHTTP_NO_HEADER_INDEX);
+        // Up to two passes: the second answers a Digest 401 challenge with
+        // credentials (WinHTTP computes the response). Non-Digest goes once.
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            if (!WinHttpSendRequest(request.get(), header_ptr, header_len, body_ptr, body_len,
+                                    body_len, 0))
+            {
+                return Result<Response>::Err(MapWinHttpError(GetLastError()));
+            }
+            if (!WinHttpReceiveResponse(request.get(), nullptr))
+            {
+                return Result<Response>::Err(MapWinHttpError(GetLastError()));
+            }
+
+            status = 0;
+            DWORD status_size = sizeof(status);
+            WinHttpQueryHeaders(
+                request.get(), WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size, WINHTTP_NO_HEADER_INDEX);
+
+            if (attempt == 0 && digest && status == 401)
+            {
+                DWORD supported = 0;
+                DWORD first = 0;
+                DWORD target = 0;
+                if (WinHttpQueryAuthSchemes(request.get(), &supported, &first, &target) &&
+                    (supported & WINHTTP_AUTH_SCHEME_DIGEST) != 0)
+                {
+                    WinHttpSetCredentials(request.get(), WINHTTP_AUTH_TARGET_SERVER,
+                                          WINHTTP_AUTH_SCHEME_DIGEST, wuser.c_str(), wpass.c_str(),
+                                          nullptr);
+                    continue; // resend with credentials
+                }
+            }
+            break;
+        }
 
         std::vector<Header> response_headers;
         DWORD headers_size = 0;
