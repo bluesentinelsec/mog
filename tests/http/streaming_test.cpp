@@ -203,6 +203,10 @@ TEST(Streaming, OnlyFinalBodyStreamsAcrossRedirect)
     std::string got;
     mog::Options opts;
     opts.response_writer = CollectInto(got);
+    // Pinned to embedded: asserts history_len, which WinHTTP doesn't expose. All
+    // backends only stream the final body (they follow redirects internally); the
+    // cross-backend contract covers native streaming generally.
+    opts.backend = mog::Backend::Embedded;
 
     auto r = mog::get(server.origin() + "/start", opts);
     ASSERT_TRUE(r) << r.error().to_string();
