@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>$if(title)$$title$ · mog$else$mog$endif$</title>
+  <meta name="description" content="$if(description)$$description$$else$mog is a lightweight, static-link-friendly C++ HTTP/S client and CLI.$endif$">
+  <link rel="icon" href="assets/mog-icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="nav">
+    <a class="brand" href="index.html"><img src="assets/mog-icon.svg" alt="mog logo"> mog</a>
+    <span class="spacer"></span>
+    <a href="index.html">Home</a>
+    <a href="cli.html">CLI Manual</a>
+    <a href="guide.html" class="hide-sm">Guide</a>
+    <a href="library.html" class="hide-sm">Library</a>
+    <a href="https://github.com/bluesentinelsec/mog">GitHub</a>
+  </nav>
+  <main class="wrap">
+$body$
+  </main>
+  <footer>
+    mog · lightweight static-link-friendly HTTP/S for C++ ·
+    <a href="https://github.com/bluesentinelsec/mog">github.com/bluesentinelsec/mog</a>
+  </footer>
+</body>
+</html>

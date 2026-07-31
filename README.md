@@ -1,542 +1,106 @@
+<div align="center">
+
 # mog
 
-**mog** is a lightweight, cross-platform HTTP/S client library and CLI for C++.
-
-It prioritizes **easy shipping**: the default backend is a static-link-friendly
-embedded HTTP/1.1 stack (sockets + [mbedTLS](https://www.trustedfirmware.org/projects/mbed-tls/)),
-so you do not need libcurl or OpenSSL installed to build or run.
-
-Platform-native backends now cover every desktop OS behind the same API: **macOS
-NSURLSession** (`--backend native`), **libcurl** (Linux & macOS, loaded at runtime
-via `dlopen` — `--backend curl`), and **Windows WinHTTP** (`--backend winhttp`).
-The always-present **`embedded`** stack is the default and the API surface you
-should design against.
-
-```bash
-mog get https://example.com
-mog post https://httpbin.org/post --json '{"ok":true}'
-mog get https://httpbin.org/basic-auth/u/p -u u:p -f
-```
+**A lightweight, static-link-friendly HTTP/S client for C++. One binary, encrypted requests, no dependency headaches.**
 
 [![CI](https://github.com/bluesentinelsec/mog/actions/workflows/ci.yml/badge.svg)](https://github.com/bluesentinelsec/mog/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-informational.svg)](LICENSE)
+&nbsp;·&nbsp; **[Documentation](https://bluesentinelsec.github.io/mog/)** ·
+[CLI Manual](https://bluesentinelsec.github.io/mog/cli.html) ·
+[Guide](https://bluesentinelsec.github.io/mog/guide.html)
+
+</div>
 
 ---
 
-## Features
+<div align="center">
+  <img src="docs/assets/mog-banner.png" alt="mog: a moogle delivering an HTTP/S package" width="820">
+</div>
 
-| Capability | Library | CLI |
-|------------|---------|-----|
-| GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS | yes | yes |
-| HTTPS (mbedTLS) | yes | yes |
-| Query params | `Options::params` | URL / `-G -d` |
-| JSON body (string) | `WithJson` / `Options::json` | `--json` |
-| JSON body (nlohmann) | `WithJson(opt, json)` / `post_json` | via `--json` text |
-| Parse JSON response | `ParseJson(response)` | n/a |
-| Form body (urlencoded) | `WithForm` / `Options::form` | `-d 'a=1&b=2'` |
-| Multipart/form-data + file upload | `AddFormField` / `AddFormFile` | `-F name=value`, `-F f=@file` |
-| Raw body / file body | `Options::body` / `ReadFile` | `-d`, `-d @file` |
-| Basic auth | `WithBasicAuth` | `-u user:pass` |
-| Bearer token | `WithBearerToken` | `--bearer` |
-| Digest auth | `WithDigestAuth` | `-u user:pass --digest` |
-| Client cert (mTLS) | `WithClientCert` / `Options::client_cert` | `--cert`, `--key`, `--pass` |
-| Custom headers | `Options::headers` | `-H` |
-| Cookies (send + Set-Cookie parse) | yes + Session jar | `-b` |
-| Redirects | yes (**default on**) | `--no-location` to disable, `--max-redirs` |
-| Keep-alive / connection reuse | Session default on | (library `Options::keep_alive`) |
-| Timeouts (I/O + connect) | yes | `--timeout`, `--connect-timeout` |
-| TLS verify / CA trust | hybrid (CLI/env → system → embedded Mozilla) | `-k`, `--cacert` |
-| Runtime shared libraries | `mog::SharedLibrary` (dlopen/LoadLibrary) | n/a |
-| HTTP proxy (+ HTTPS CONNECT) | `Options::proxy` | `-x` |
-| Response size limit | `max_response_bytes` (decoded when decompressing) | (library) |
-| Disable decompress | `Options::decompress = false` | `--no-decompress` |
-| Thread-safe free functions + Session | yes | n/a |
-| Backend override | CLI / env / Options | `--backend`, `MOG_BACKEND` |
-| macOS NSURLSession backend | `Options::backend = Native` | `--backend native` |
-| libcurl backend (runtime `dlopen`) | `Options::backend = Curl` | `--backend curl` |
-| WinHTTP backend (Windows) | `Options::backend = WinHttp` | `--backend winhttp` |
-| Session cookie jar (domain/path/Secure) | yes | `-b` (per-request) |
-| Content-Encoding gzip/deflate | yes (miniz, static) | `--no-decompress` to disable |
-| HTTP/2, WebSocket | non-goals (see below) | non-goals |
-| HTTP server | deferred | deferred |
+C++ has plenty of HTTP libraries, but shipping one usually drags in libcurl,
+OpenSSL, and a chain of transitive dependencies. mog does the opposite. It
+prefers the HTTP stack your operating system already ships. That means libcurl
+on Linux (loaded at runtime), NSURLSession on macOS, and WinHTTP on Windows. When
+none of those is available, it falls back to a small embedded stack (HTTP/1.1 +
+mbedTLS) that is statically linked and always present.
 
-### Non-goals
+You can static-link mog into a single binary and run it anywhere. That includes a
+`FROM scratch` container with nothing on disk but the executable. HTTPS still
+verifies there, because the Mozilla CA bundle is compiled into the binary.
 
-- **HTTP/2** is not implemented in the embedded stack (HTTP/1.1 only) and is not
-  planned there. When you need it, use a platform-native backend that provides
-  it — `--backend curl`/`winhttp`/`native` all speak HTTP/2 where the OS library
-  does — since HTTP semantics are identical and mog's API is unchanged. (If
-  embedded HTTP/2 is ever required, `nghttp2` — MIT, lib-only static — is the
-  intended route; not on the roadmap today.)
-- **WebSocket** is out of scope: mog is a request/response HTTP client. For
-  server-push over HTTP, a streaming (SSE-style) response via `response_writer`
-  covers many cases without a new protocol.
+## Quick start
 
-These keep the embedded fallback small and auditable; large-scale/HTTP-2 traffic
-rides the native backends.
-
----
-
-## Build
+**CLI**
 
 ```bash
 git clone https://github.com/bluesentinelsec/mog.git
-cd mog
-make && make test
-./build/debug/bin/mog get https://example.com -v
+cd mog && make
+./build/debug/bin/mog get https://example.com -i
 ```
-
-Windows: `build.bat` / `build.bat test`.
-
-### Static Linux binary (scratch / minimal images)
-
-A fully static, self-contained binary — C runtime, C++ runtime, mbedTLS, and the
-embedded Mozilla CA bundle all baked in — runs on `FROM scratch` with nothing
-else on the filesystem:
 
 ```bash
-docker build -f docker/Dockerfile.linux-static -t mog-static .
-docker run --rm mog-static get https://example.com   # HTTPS via bundled CAs, no CA file on disk
+mog post https://api.example.com/things --json '{"name":"mog"}' -w '%{http_code}\n'
+mog get https://example.com -o page.html            # streamed to disk
+mog get https://api.example.com -u user:pass --digest
 ```
 
-It's built on **Alpine (musl)**: `-static` with musl produces a genuinely
-self-contained binary. A glibc `-static` build is *not* scratch-safe — glibc's
-`getaddrinfo` `dlopen`s NSS plugins at runtime, which don't exist on `scratch`,
-so DNS breaks; musl's resolver is built in. CI builds and smoke-tests this image
-(`linux-static` job), and releases attach `mog-linux-x86_64-static-<version>.zip`.
-
-> DNS still needs a resolver config: containers get `/etc/resolv.conf` from the
-> runtime. On a bare host with no resolver, use an IP or provide `resolv.conf`.
-
----
-
-## Library API
+**Library**
 
 ```cpp
 #include <mog/mog.hpp>
-#include <iostream>
 
-int main() {
-    // One-shot GET
-    auto r = mog::get("https://example.com");
-    if (!r) {
-        std::cerr << r.error().to_string() << "\n";
-        return 1;
-    }
-    std::cout << r->status_code << " " << r->elapsed.count() << "ms\n";
-    std::cout << r->text();
-
-    // JSON POST — string form always works
-    mog::Options opt;
-    mog::WithJson(opt, R"({"name":"mog"})");
-    mog::WithBearerToken(opt, "secret-token");
-    opt.timeout = std::chrono::seconds(15);
-    auto r2 = mog::post("https://api.example.com/v1/items", opt);
-
-    // JSON POST — nlohmann/json (cppboot default; MOG_WITH_JSON=ON)
-    nlohmann::json payload = {{"name", "mog"}, {"n", 1}};
-    auto r2b = mog::post_json("https://api.example.com/v1/items", payload);
-    if (r2b) {
-        if (auto doc = mog::ParseJson(*r2b)) {
-            std::cout << (*doc).dump(2) << "\n";
-        }
-    }
-
-    // Form POST
-    auto r3 = mog::post("https://example.com/login",
-                        mog::FormOptions({{"user", "a"}, {"pass", "b"}}));
-
-    // Session with cookie jar + defaults
-    mog::Session s;
-    s.set_base_url("https://api.example.com");
-    s.set_header("Accept", "application/json");
-    s.set_bearer_token("token");
-    auto r4 = s.get("/v1/me");
-    // Set-Cookie from r4 is stored; later calls send Cookie automatically.
-
-    if (auto e = r4->raise_for_status(); !e) {
-        std::cerr << e.error().to_string() << "\n";
-    }
+auto r = mog::get("https://example.com");
+if (r) {
+    // r->status_code, r->headers, r->text()
 }
 ```
 
-### `Options` (requests-style)
+## Features
 
-| Field | Purpose |
-|-------|---------|
-| `headers` | Extra request headers |
-| `body` | Raw body |
-| `json` | JSON body (+ `Content-Type: application/json`) |
-| `form` | urlencoded form fields |
-| `multipart` | multipart/form-data parts (`AddFormField` / `AddFormFile`) |
-| `params` | Query string parameters |
-| `cookies` | Cookie name → value |
-| `auth` | Basic / Bearer / Digest (`WithBasicAuth` / `WithBearerToken` / `WithDigestAuth`) |
-| `client_cert` / `client_key` / `client_key_password` | mTLS client certificate (`WithClientCert`) |
-| `timeout` | I/O deadline (default 30s) |
-| `connect_timeout` | Optional connect-only deadline |
-| `verify_tls` | Certificate verification (default true) |
-| `ca_bundle` | PEM path (highest trust precedence; else env/system/embedded) |
-| `allow_redirects` / `max_redirects` | Follow 3xx by default; set false / CLI `--no-location` to disable |
-| `keep_alive` | Prefer `Connection: keep-alive` (default true); Session also pools by origin |
-| `proxy` | `http://host:port` |
-| `max_response_bytes` | Body size cap (default 64 MiB; decoded size when decompressing) |
-| `decompress` | Decode Content-Encoding gzip/deflate (default true) |
-| `response_writer` | Stream body to a sink instead of buffering (see below) |
-| `backend` | Optional backend override |
-| `user_agent` | Default User-Agent if not set |
+- **Static and self-contained.** The embedded backend bundles HTTP/1.1, mbedTLS, and the Mozilla CA roots. It runs on scratch images.
+- **OS-native backends.** curl (`dlopen`), NSURLSession, and WinHTTP are preferred automatically, and they are at feature parity with the fallback.
+- **Hybrid TLS trust.** The system store is tried first, then the embedded roots. HTTPS verifies everywhere.
+- **Requests-style library and a curl-style CLI.**
+- Redirects, cookies (domain, path, and Secure), gzip and deflate, streaming download, multipart upload, Basic, Bearer, and Digest auth, mTLS, HTTP proxy, and JSON interop.
 
-Body precedence: **`multipart` > `json` > `form` > `body`**.
+## Backends
 
-### Multipart / file uploads
-
-Build `multipart/form-data` requests with `Options::multipart` (or the helpers).
-When any part is present, mog sets `Content-Type: multipart/form-data` with a
-generated boundary and takes precedence over `json` / `form` / `body`.
-
-```cpp
-mog::Options opt;
-mog::AddFormField(opt, "user", "alice");
-mog::AddFormFile(opt, "avatar", "me.png", png_bytes, "image/png"); // from memory
-auto from_disk = mog::AddFormFileFromPath(opt, "report", "report.pdf"); // reads file
-if (!from_disk) { /* FileError */ }
-auto r = mog::post("https://example.com/upload", opt);
-```
-
-File parts always get a `Content-Type` (guessed from the filename when unset);
-the whole body is built in memory (streaming uploads are a non-goal).
-
-> **CLI breaking change:** `-F` now builds `multipart/form-data` (curl-compatible)
-> instead of urlencoded fields. `-F name=value` is a text field, `-F name=@path`
-> uploads a file (with optional `;type=` / `;filename=`), and `-F name=<path`
-> reads a field value from a file. For an urlencoded body use `-d 'a=1&b=2'`.
-
-### Streaming downloads
-
-For large responses, set `Options::response_writer` to deliver the body
-incrementally instead of buffering it into `Response::body` (which then stays
-empty). `Response::downloaded_bytes` reports how many bytes were streamed.
-Memory stays flat regardless of body size, and `max_response_bytes` is still
-enforced (0 = unlimited). Works with both `Content-Length` and chunked bodies;
-only the final response streams (redirect bodies are skipped).
-
-```cpp
-// To a file (helper opens/truncates it and returns a writer):
-auto writer = mog::FileWriter("big.iso");
-if (!writer) { /* FileError */ }
-mog::Options opts;
-opts.response_writer = std::move(*writer);
-auto r = mog::get("https://example.com/big.iso", opts);   // r->body is empty
-
-// Or to any sink via a callback (return an Error to abort):
-mog::Options o;
-o.response_writer = [&](std::string_view chunk) -> mog::Result<void> {
-    hasher.update(chunk);
-    return mog::Result<void>::Ok();
-};
-```
-
-Streaming delivers the **exact wire bytes**: while a writer is attached mog does
-not advertise `Accept-Encoding` and does not decode `Content-Encoding`, so
-`decompress` has no effect (you get an identity body by default, like `curl -o`).
-
-### Session cookie jar
-
-`Session` keeps a cookie jar that stores `Set-Cookie` responses and replays them
-on later requests, scoped by **domain**, **path**, and the **Secure** flag —
-enough for typical login/session APIs.
-
-- **Domain** — with no `Domain` attribute the cookie is *host-only* (exact host
-  match). With `Domain=example.com` it also matches subdomains. A `Domain` the
-  request host doesn't belong to is rejected (no cross-site setting).
-- **Path** — defaults to the request's directory (RFC 6265 default-path); a
-  cookie is sent only when the request path is within its path. On a name clash,
-  the most specific (longest) path wins.
-- **Secure** — `Secure` cookies are sent only over HTTPS. `HttpOnly` is stored
-  and sent (it only restricts scripting, which doesn't apply to a client).
-- `set_cookie(name, value)` adds a manual cookie that matches any host at `/`.
-
-```cpp
-mog::Session s;
-s.get("https://api.example.com/login");   // stores Set-Cookie
-s.get("https://api.example.com/me");       // matching cookies replayed automatically
-```
-
-Intentional non-goals (kept simple on purpose): full RFC 6265 semantics,
-`SameSite`, public-suffix-list validation, expiry/`Max-Age` eviction (cookies are
-session-lifetime), and capturing `Set-Cookie` emitted on intermediate redirect
-hops (only the final response is stored). For one-shot cookies on the free
-functions, set `Options::cookies` (sent as-is, no jar).
-
-### nlohmann/json (cppboot)
-
-cppboot projects ship **nlohmann/json** via FetchContent (`MOG_WITH_JSON`, default
-ON for top-level builds). When enabled, mog defines `MOG_HAS_JSON=1` and
-`#include <mog/mog.hpp>` pulls in `mog/json.hpp`:
-
-```cpp
-#include <mog/mog.hpp>
-#include <nlohmann/json.hpp>  // also available through mog/json.hpp
-
-nlohmann::json req = {{"user", "a"}, {"ok", true}};
-auto res = mog::post_json("https://httpbin.org/post", req);
-if (!res) { /* transport error */ }
-auto doc = mog::ParseJson(*res);  // Result<nlohmann::json>
-```
-
-| API | Role |
-|-----|------|
-| `WithJson(opt, nlohmann::json)` | Serialize into `Options::json` |
-| `JsonOptions(nlohmann::json)` | Build Options with JSON body |
-| `post_json` / `put_json` / `patch_json` | One-shot JSON requests |
-| `ParseJson(Response)` / `ParseJson(string_view)` | Parse body → `nlohmann::json` |
-
-String overloads remain for CLI and callers that already have serialized JSON.
-Disable with `-DMOG_WITH_JSON=OFF` if you embed mog without JSON.
-
-### Logging (spdlog)
-
-cppboot ships **spdlog** (`MOG_WITH_SPDLOG`, default ON; required for the CLI).
-Library and CLI share one process-wide logger.
-
-```cpp
-#include <mog/mog.hpp>
-
-// Same default stderr-colored logger the CLI uses:
-mog::UseDefaultLogger(mog::LogLevel::Debug);
-
-// Or inject your own spdlog logger:
-// mog::SetLogger(my_spdlog_logger);
-
-auto r = mog::get("https://example.com");
-// → info/debug lines for request, connect, TLS, redirects, response summary
-```
-
-| API | Role |
-|-----|------|
-| `UseDefaultLogger(level)` | Install mog’s stderr color logger |
-| `MakeDefaultLogger(level)` | Create without installing |
-| `SetLogger(ptr)` | Inject a custom `std::shared_ptr<spdlog::logger>` |
-| `GetLogger()` | Active logger (lazy-creates default at Warn) |
-| `SetLogLevel` / `GetLogLevel` | Change level on the active logger |
-| `MOG_LOG_DEBUG` / `INFO` / … | Macros used inside the library |
-
-CLI flags: `-v` (debug), `-s` (off), `--log-level trace|debug|info|…`.
-
-CLI argument mapping is unit-tested in `tests/cli/` (every flag → `Options` /
-method / log level, plus CLI11 parse of subcommands and repeated `-H`/`-F`).
-
-### `Response`
-
-| Member / method | Purpose |
-|-----------------|---------|
-| `status_code`, `reason`, `url` | Status and final URL |
-| `headers` | Ordered list (duplicates preserved) |
-| `header` / `header_all` | Case-insensitive lookup |
-| `body` / `text()` / `content()` | Payload |
-| `cookies` | Parsed `Set-Cookie` name/value |
-| `history` / `history_len` | Redirect chain |
-| `elapsed` | Wall time for the exchange |
-| `backend` | e.g. `"embedded"` |
-| `ok()` / `is_redirect()` / `raise_for_status()` | Status helpers |
-
-### Backend selection
-
-Precedence:
-
-1. `Options::backend` / CLI `--backend` (explicit — honored exactly)
-2. Env `MOG_BACKEND` (explicit)
-3. `Auto` (default): **prefer the platform-native backend**, else fall back to
-   the always-present **`embedded`** stack
-
-`Auto` is **capability-aware**: it uses the native backend for what it does well
-and transparently falls back to embedded for any request the native backend
-can't serve (see deltas below) — so the default never silently loses a feature.
-On a minimal image with no native library (e.g. a `scratch` container without
-libcurl), `Auto` naturally lands on embedded.
+`Auto` (the default) prefers the platform-native backend and falls back to
+embedded. It chooses **per request**, so a call never silently loses a feature.
+Select one explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 
 | Backend | Selector | Role |
 |---------|----------|------|
 | macOS NSURLSession | `native` | Auto default on macOS |
-| libcurl (Linux & macOS, via `dlopen`) | `curl` | Auto default on Linux |
+| libcurl (runtime `dlopen`) | `curl` | Auto default on Linux |
 | Windows WinHTTP | `winhttp` | Auto default on Windows |
-| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Fallback + full feature set; the API you design against |
+| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Always-present fallback, and the API you design against |
 
-Native libraries are reached **without hard-linking**: **libcurl** via runtime
-`dlopen`, **WinHTTP** and **NSURLSession** via always-present system frameworks.
+## Documentation
 
-**The contract.** Every backend is held to one behavioral suite —
-`RunHttpContract` in `tests/http/backend_conformance_test.cpp` — run against each
-backend on its OS in CI, which also enforces (`MOG_CI_ENFORCE_BACKENDS`) that each
-OS's expected backend is actually available (a regression to "unavailable" fails
-the build instead of silently skipping).
+- **[Documentation site](https://bluesentinelsec.github.io/mog/)**: the landing page and full docs.
+- **[CLI Manual](docs/cli.md)**: every flag, exit codes, environment variables, and write-out tokens.
+- **[Guide](docs/guide.md)**: backends, TLS trust, request behavior, and static or scratch deployment.
+- **[Library](docs/library.md)**: the C++ API, covering `Options`, `Response`, `Session`, streaming, multipart, and auth.
 
-**Feature parity.** The native backends now match embedded on streaming
-(`response_writer`), `max_response_bytes`, and **Digest auth** (curl via libcurl,
-WinHTTP via its auth loop, NSURLSession via the auth challenge).
+## Build
 
-**Capability fallback / deltas.** The one remaining difference is trust
-configuration, which is inherently backend-specific. NSURLSession and WinHTTP
-verify against the **OS trust store**, so a request that supplies a **PEM CA
-bundle** or **PEM client certificate (mTLS)** falls back under `Auto` to a
-PEM-capable backend (curl honors both; embedded honors both). This is by design,
-not a missing feature — the whole point of a native backend is to use the OS's
-own trust.
-
-Choosing a backend explicitly (`--backend`, `MOG_BACKEND`, `Options::backend`)
-disables the capability fallback — the request uses exactly that backend.
-
----
-
-## CLI
-
-```text
-mog get URL [options]
-mog post URL [options]
-mog [options] URL
+```bash
+make            # Debug build + tests
+make release    # optimized
+make test       # unit tests
 ```
 
-| Flag | Description |
-|------|-------------|
-| `-X METHOD` | HTTP method (bare form) |
-| `-H "Name: value"` | Header |
-| `-d DATA` | Body (`@file` reads a file) |
-| `--json DATA` | JSON body (`@file` ok); implies POST if method is GET |
-| `-F name=value` | multipart part; `name=@file[;type=..;filename=..]` uploads a file, `name=<file` reads a field value from a file |
-| `-u user:pass` | Basic auth (add `--digest` for Digest) |
-| `--digest` | Use HTTP Digest auth with `-u` credentials |
-| `--bearer TOKEN` | Bearer auth |
-| `-A UA` | User-Agent |
-| `-e URL` | Referer |
-| `-b "a=1; b=2"` | Cookies |
-| `-x http://host:port` | HTTP proxy |
-| `--cacert PATH` | CA bundle |
-| `-E, --cert PATH` | Client certificate PEM (mTLS) |
-| `--key PATH` | Client private-key PEM (defaults to `--cert`) |
-| `--pass PHRASE` | Passphrase for `--key` |
-| `--timeout SEC` | I/O timeout |
-| `--connect-timeout SEC` | Connect timeout |
-| `--max-redirs N` | Max redirects (default 5) |
-| `--no-location` | Do not follow redirects |
-| `-k` | Insecure TLS |
-| `-o FILE` | Write body to file (streamed to disk; identity encoding, like `curl -o`) |
-| `-D FILE` | Dump response headers to file |
-| `-i` | Include headers in body output |
-| `-f` | Fail on HTTP 4xx/5xx (exit 22) |
-| `-v` | Debug logging (spdlog) |
-| `--log-level LEVEL` | Explicit log level (overrides `-v`/`-s`) |
-| `-s` / `-S` | Silent logs / show errors with silent |
-| `-G` | With `-d`, append data as query string |
-| `-w FORMAT` | `%{http_code}` `%{url_effective}` `%{time_total}` `%{size_download}` `%{num_redirects}` |
-| `--backend NAME` | Backend override |
-| `-V` | Version |
+Windows uses `build.bat` or `build.bat test`. To produce a fully static Linux
+binary for scratch or minimal images, run
+`docker build -f docker/Dockerfile.linux-static -t mog-static .`
 
----
+## Why "mog"?
 
-## TLS trust (hybrid)
-
-When HTTPS verification is enabled (`verify_tls` / default), mog resolves CA roots
-in this order (first successful source wins):
-
-1. **CLI / Options** — `--cacert` / `Options::ca_bundle`
-2. **Environment** — `MOG_CA_BUNDLE`, then `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
-   `CURL_CA_BUNDLE`, then `SSL_CERT_DIR` (colon-separated PEM directories)
-3. **System** — common OS PEM paths; on Windows, the CryptoAPI `ROOT`/`CA` stores
-   via **runtime** `LoadLibrary("crypt32.dll")` (not a static link)
-4. **Embedded** — Mozilla CA roots shipped in the binary (`data/cacert.pem`,
-   same export as [curl’s cacert.pem](https://curl.se/ca/cacert.pem))
-5. **Fail loud** — error text lists how to supply a bundle
-
-Minimal containers (`scratch`, distroless without `ca-certificates`) still verify
-public HTTPS via the embedded bundle. Set `MOG_NO_EMBEDDED_CA=1` to forbid that
-fallback. A daily GitHub Action refreshes the bundle and opens a PR when Mozilla’s
-export changes.
-
-Resource policy used elsewhere in mog:
-
-> **CLI or ENV override → system resources → static/embedded → fail loud**  
-> Optional platform libraries are loaded at runtime (`mog::SharedLibrary` /
-> `dlopen` / `LoadLibrary`), not hard-linked.
-
----
-
-## Advanced auth (Digest, mTLS)
-
-**HTTP Digest** — challenge-response auth for locked-down APIs. The first request
-is sent without credentials; on a `401` with a `Digest` challenge, mog computes
-the response and retries once. Supports `qop=auth` (and legacy no-qop) with `MD5`,
-`MD5-sess`, `SHA-256`, and `SHA-256-sess`.
-
-```cpp
-mog::Options opt;
-mog::WithDigestAuth(opt, "user", "pass");
-auto r = mog::get("https://api.example.com/protected", opt);   // CLI: -u user:pass --digest
-```
-
-**Client certificates (mTLS)** — present a client certificate during the TLS
-handshake (embedded/mbedTLS backend):
-
-```cpp
-mog::Options opt;
-mog::WithClientCert(opt, "client.pem", "client.key");   // + optional key passphrase
-auto r = mog::get("https://mtls.example.com/", opt);    // CLI: --cert client.pem --key client.key
-```
-
-Non-goals for this release: Digest `qop=auth-int`, and platform-backend-specific
-certificate stores (the embedded backend takes PEM file paths).
-
----
-
-## Project layout
-
-```text
-include/mog/              Public API (http, session, options, dynload, cli, …)
-src/main.cpp              Thin shell → mog::cli::RunArgv only
-src/cli/                  parse | prepare | run | output (SRP)
-src/dynload/              SharedLibrary implementation
-src/http/                 HTTP API + transport registry
-src/http/detail/          Embedded stack, TLS, CA store, URL, content encoding
-data/cacert.pem           Mozilla CA bundle source (regenerate embed via script)
-tests/…                   Unit tests by component
-```
-
-- **Main** has no domain logic (library-first, SOLID).
-- **New transports:** implement `detail::Transport`, call `RegisterTransport`.
-- **Platform APIs:** resolve via `mog::SharedLibrary` at runtime.
-- **CLI tests** cover flags without spawning a process.
-- **Embedded contract:** `tests/http/conformance_test.cpp` (local server only; no
-  public network). Platform backends should match this suite under the same API.
-
----
-
-## Embedded HTTP contract
-
-The default **embedded** backend is the behavioral baseline. Conformance tests
-(`EmbeddedConformance.*` in `ctest`) cover, without leaving the machine:
-
-| Area | Locked behavior |
-|------|-----------------|
-| Status | 200, 204, 4xx/5xx + `raise_for_status` |
-| Bodies | `Content-Length`, chunked TE, empty body, HEAD (no body) |
-| Redirects | **Follow by default** (301–308); POST→GET on 301/302/303; preserve POST on 307/308; max redirects; `allow_redirects=false` / `--no-location` to not follow |
-| Keep-alive | Session reuses TCP/TLS to same origin when server allows; free functions are connection-per-request |
-| Failures | connect refused, `max_response_bytes` (CL + chunked) |
-| Auth | Basic, Bearer, and Digest `Authorization`; mTLS client certs |
-| Encoding | gzip decode on by default; raw when `decompress=false` |
-| Backend | `Response::backend == "embedded"` |
-
-Shared harness: `tests/http/test_support/local_http_server.hpp`.
-
-Bootstrapped with [cppboot](https://github.com/bluesentinelsec/cppboot).
-
----
+Short for *moogle*: a small, fluffy courier that delivers packages. In our case,
+it delivers packets. It asks for no dependencies in return. Kupo.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
-**FetchContent (static) dependencies of note:** mbedTLS (Apache-2.0) for TLS;
-[miniz](https://github.com/richgel999/miniz) (MIT) for gzip/deflate Content-Encoding.
-**Embedded data:** Mozilla CA roots via curl’s `cacert.pem` export (see
-`data/cacert.pem`). Optional OS crypto libraries (e.g. Windows `crypt32.dll`) are
-loaded only at runtime when present.
+MIT. See [LICENSE](LICENSE).
