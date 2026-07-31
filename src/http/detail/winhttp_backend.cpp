@@ -241,8 +241,8 @@ class WinHttpTransport final : public Transport
         return true;
     }
 
-    // WinHTTP here does not implement streaming, Digest, or PEM CA/mTLS (it uses
-    // the Windows cert store); Auto falls back to embedded for those.
+    // WinHTTP does streaming, max_response_bytes, and Digest. Only PEM CA/mTLS is
+    // a delta (it uses the Windows cert store); Auto routes those to embedded/curl.
     [[nodiscard]] bool Supports(const Options &options) const noexcept override
     {
         // Intentional delta: WinHTTP uses the Windows cert store, so a PEM CA
