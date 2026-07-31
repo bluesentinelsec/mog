@@ -19,13 +19,17 @@ if(WIN32)
   target_link_libraries(mog_c_api_test PRIVATE ws2_32)
 endif()
 cppboot_set_project_warnings(mog_c_api_test)
-gtest_discover_tests(mog_c_api_test)
+gtest_discover_tests(mog_c_api_test DISCOVERY_TIMEOUT ${MOG_GTEST_DISCOVERY_TIMEOUT})
 
 # Pure-C compile + link check: proves the header is valid C and symbols resolve.
+# The source is compiled as C99 (validating the header), but the executable is
+# linked with the C++ driver via LINKER_LANGUAGE CXX. libmog_c is a C++ shared
+# library, so under sanitizers it pulls C++-only UBSan runtime symbols
+# (e.g. __ubsan_vptr_type_cache) that the C driver's runtime does not provide.
 add_executable(mog_c_compile_check compile_check.c)
 target_link_libraries(mog_c_compile_check PRIVATE ${PROJECT_NAME}_c)
 target_include_directories(mog_c_compile_check PRIVATE ${CMAKE_SOURCE_DIR}/include)
-set_target_properties(mog_c_compile_check PROPERTIES C_STANDARD 99)
+set_target_properties(mog_c_compile_check PROPERTIES C_STANDARD 99 LINKER_LANGUAGE CXX)
 add_test(NAME mog_c_compile_check COMMAND mog_c_compile_check)
 
 # ctypes smoke test: load the shared library from Python and perform a request.

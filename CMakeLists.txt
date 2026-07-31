@@ -147,11 +147,12 @@ add_subdirectory(src)
 
 if(MOG_BUILD_TESTS)
   enable_testing()
-  # Discover GoogleTest cases when ctest runs rather than during the build. The
-  # build-time default launches every test executable at once at the end of a
-  # parallel build, which can exceed the 5s discovery timeout on a loaded
-  # Windows runner. PRE_TEST spreads discovery across the test run instead.
-  set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
+  # gtest_discover_tests runs each freshly built test executable to enumerate its
+  # cases. On Windows CI the first run of a new .exe is scanned by Defender,
+  # which can exceed the default 5s discovery timeout when several run at once.
+  # Give discovery a generous default; individual calls pass DISCOVERY_TIMEOUT
+  # ${MOG_GTEST_DISCOVERY_TIMEOUT}.
+  set(MOG_GTEST_DISCOVERY_TIMEOUT 120)
   add_subdirectory(tests)
 endif()
 

@@ -39,4 +39,4 @@ endif()
 # miniz / mbedTLS are PRIVATE on the static lib; unit tests that call them need links.
 target_link_libraries(mog_http_test PRIVATE miniz mbedtls mbedx509 mbedcrypto)
 cppboot_set_project_warnings(mog_http_test)
-gtest_discover_tests(mog_http_test)
+gtest_discover_tests(mog_http_test DISCOVERY_TIMEOUT ${MOG_GTEST_DISCOVERY_TIMEOUT})
