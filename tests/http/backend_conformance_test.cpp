@@ -145,6 +145,19 @@ void RunHttpContract(Backend backend)
         ASSERT_FALSE(r);
         EXPECT_EQ(r.error().code(), mog::ErrorCode::ResponseTooLarge);
     }
+
+    // Digest auth: a 401 challenge is answered with credentials and retried.
+    {
+        LocalHttpServer server;
+        server.RequireDigestAuth("realm", "nonce-xyz");
+        server.SetResponse(200, "secret");
+        mog::Options opt = With(backend);
+        mog::WithDigestAuth(opt, "user", "pass");
+        auto r = mog::get(server.origin() + "/protected", opt);
+        ASSERT_TRUE(r) << r.error().to_string();
+        EXPECT_EQ(r->status_code, 200);
+        EXPECT_EQ(r->text(), "secret");
+    }
 }
 
 } // namespace

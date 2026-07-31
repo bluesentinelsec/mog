@@ -116,6 +116,7 @@ TEST(DigestAuth, SessionRetriesWithCredentials)
 
     mog::Options opt;
     mog::WithDigestAuth(opt, "user", "pass");
+    opt.backend = mog::Backend::Embedded; // inspects embedded's exact Authorization header
     auto r = mog::get(server.origin() + "/protected", opt);
     ASSERT_TRUE(r) << r.error().to_string();
     EXPECT_EQ(r->status_code, 200);

@@ -91,6 +91,9 @@ static mog::Error MogMapNsError(NSError *err)
 @interface MogSessionDelegate : NSObject <NSURLSessionDataDelegate>
 @property(nonatomic, assign) BOOL allowRedirects;
 @property(nonatomic, assign) BOOL verify;
+@property(nonatomic, assign) BOOL digestAuth;
+@property(nonatomic, copy) NSString *authUser;
+@property(nonatomic, copy) NSString *authPassword;
 @property(nonatomic, assign) MogAppleContext *ctx;
 @property(nonatomic, strong) id semHolder; // retains the dispatch_semaphore_t
 @property(nonatomic, assign) dispatch_semaphore_t sem;
@@ -212,16 +215,35 @@ static mog::Error MogMapNsError(NSError *err)
     }
 }
 
+// Task-level handler: receives both connection challenges (server trust) and
+// HTTP-auth challenges (Digest). Implementing it means all challenges arrive here.
 - (void)URLSession:(NSURLSession *)session
+                  task:(NSURLSessionTask *)task
     didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
       completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))handler
 {
     (void)session;
-    if (!self.verify &&
-        [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust])
+    (void)task;
+    NSString *method = challenge.protectionSpace.authenticationMethod;
+    if ([method isEqualToString:NSURLAuthenticationMethodServerTrust])
+    {
+        if (!self.verify)
+        {
+            NSURLCredential *cred =
+                [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+            handler(NSURLSessionAuthChallengeUseCredential, cred);
+            return;
+        }
+        handler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+        return;
+    }
+    if (self.digestAuth && challenge.previousFailureCount == 0 &&
+        [method isEqualToString:NSURLAuthenticationMethodHTTPDigest])
     {
         NSURLCredential *cred =
-            [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+            [NSURLCredential credentialWithUser:self.authUser
+                                       password:self.authPassword
+                                    persistence:NSURLCredentialPersistenceForSession];
         handler(NSURLSessionAuthChallengeUseCredential, cred);
         return;
     }
@@ -295,15 +317,11 @@ class AppleNativeTransport final : public Transport
         return true;
     }
 
-    // NSURLSession streams and enforces max_response_bytes; it does not implement
-    // Digest (later slice) or PEM CA/mTLS (intentional delta — it uses the OS
-    // trust store/keychain). Auto falls back to embedded for those.
+    // NSURLSession streams, enforces max_response_bytes, and does Digest. PEM CA
+    // bundle / PEM client cert are an intentional delta (it uses the OS trust
+    // store/keychain), so Auto routes those to a PEM-capable backend.
     [[nodiscard]] bool Supports(const Options &options) const noexcept override
     {
-        if (options.auth.kind == Auth::Kind::Digest)
-        {
-            return false;
-        }
         if (options.ca_bundle.has_value() || options.client_cert.has_value())
         {
             return false;
@@ -359,6 +377,12 @@ class AppleNativeTransport final : public Transport
             MogSessionDelegate *delegate = [[MogSessionDelegate alloc] init];
             delegate.allowRedirects = options.allow_redirects ? YES : NO;
             delegate.verify = options.verify_tls ? YES : NO;
+            if (options.auth.kind == Auth::Kind::Digest)
+            {
+                delegate.digestAuth = YES;
+                delegate.authUser = ToNSString(options.auth.username);
+                delegate.authPassword = ToNSString(options.auth.password);
+            }
             delegate.ctx = &ctx;
             delegate.semHolder = sem; // keep it alive under ARC
             delegate.sem = sem;
