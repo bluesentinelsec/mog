@@ -80,6 +80,20 @@ option(MOG_BUILD_TESTS "Build unit tests" ${MOG_IS_TOP_LEVEL})
 option(MOG_BUILD_BENCHMARKS "Build benchmarks" ${MOG_IS_TOP_LEVEL})
 # ASan + UBSan for project targets (intended for Linux GCC/Clang; see make sanitizer).
 option(MOG_ENABLE_SANITIZERS "Enable Address+UBSan on project targets" OFF)
+# The C API (include/mog/mog_c.h) is shipped as a shared library for C and FFI
+# callers. See src/c_api. On by default for top-level builds.
+option(MOG_BUILD_C_SHARED "Build the mog_c shared library (C API for FFI)" ${MOG_IS_TOP_LEVEL})
+
+# Building a shared object from the otherwise-static core requires
+# position-independent code throughout, including the FetchContent dependencies
+# (mbedTLS, miniz). Enable PIC globally before those targets are declared. macOS
+# and Windows are PIC/relocatable by default; this matters for Linux ELF, where
+# linking non-PIC static archives into a .so fails ("failed to set dynamic
+# section sizes"). The static musl scratch build sets MOG_BUILD_C_SHARED=OFF, so
+# it is unaffected.
+if(MOG_BUILD_C_SHARED)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 include(Dependencies)
 
@@ -133,6 +147,11 @@ add_subdirectory(src)
 
 if(MOG_BUILD_TESTS)
   enable_testing()
+  # Discover GoogleTest cases when ctest runs rather than during the build. The
+  # build-time default launches every test executable at once at the end of a
+  # parallel build, which can exceed the 5s discovery timeout on a loaded
+  # Windows runner. PRE_TEST spreads discovery across the test run instead.
+  set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
   add_subdirectory(tests)
 endif()
 

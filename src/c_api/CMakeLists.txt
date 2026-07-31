@@ -3,8 +3,10 @@
 # etc.) can call mog. The C++ core (and mbedTLS / miniz / OS frameworks) is
 # linked in privately, so the shared library is self-contained and exports only
 # the C API surface declared in include/mog/mog_c.h.
-option(MOG_BUILD_C_SHARED "Build the mog_c shared library (C API for FFI)" ${MOG_IS_TOP_LEVEL})
-
+#
+# The MOG_BUILD_C_SHARED option and the global position-independent-code setting
+# it enables are declared in the top-level CMakeLists, because PIC must be set
+# before the FetchContent dependencies are declared.
 if(MOG_BUILD_C_SHARED)
   add_library(${PROJECT_NAME}_c SHARED mog_c.cpp)
   add_library(${PROJECT_NAME}::c ALIAS ${PROJECT_NAME}_c)
