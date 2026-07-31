@@ -116,6 +116,35 @@ void RunHttpContract(Backend backend)
         ASSERT_TRUE(del) << del.error().to_string();
         EXPECT_EQ(server.Last().method, "DELETE");
     }
+
+    // Streaming: body delivered incrementally to the writer; Response::body empty.
+    {
+        LocalHttpServer server;
+        const std::string payload(200 * 1024, 'x'); // large enough to arrive in pieces
+        server.SetResponse(200, payload);
+        std::string got;
+        mog::Options opt = With(backend);
+        opt.response_writer = [&got](std::string_view d) -> mog::Result<void> {
+            got.append(d.data(), d.size());
+            return mog::Result<void>::Ok();
+        };
+        auto r = mog::get(server.origin() + "/stream", opt);
+        ASSERT_TRUE(r) << r.error().to_string();
+        EXPECT_EQ(got, payload);
+        EXPECT_TRUE(r->body.empty());
+        EXPECT_EQ(r->downloaded_bytes, payload.size());
+    }
+
+    // max_response_bytes is enforced.
+    {
+        LocalHttpServer server;
+        server.SetResponse(200, std::string(64 * 1024, 'y'));
+        mog::Options opt = With(backend);
+        opt.max_response_bytes = 8 * 1024;
+        auto r = mog::get(server.origin() + "/cap", opt);
+        ASSERT_FALSE(r);
+        EXPECT_EQ(r.error().code(), mog::ErrorCode::ResponseTooLarge);
+    }
 }
 
 } // namespace

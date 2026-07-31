@@ -30,14 +30,70 @@
 
 #include <cctype>
 #include <chrono>
+#include <cstddef>
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
+
+// Non-owning C++ context the NSURLSession delegate reads/writes. Lets the data
+// task deliver body bytes incrementally to a BodyWriter (streaming) or buffer
+// them, and enforce max_response_bytes, without buffering the whole response.
+struct MogAppleContext
+{
+    const mog::BodyWriter *writer = nullptr; // streaming target; null = buffer
+    std::string body;                        // buffered body when not streaming
+    std::size_t max_bytes = 0;               // 0 = unlimited
+    std::size_t received = 0;
+    bool had_error = false;
+    mog::Error error{mog::ErrorCode::IoError, "native request failed"};
+    int status = 0;
+    std::vector<mog::Header> headers;
+    std::string url;
+    int redirects = 0;
+};
+
+// Map an NSURLSession NSError to a mog::Error (file scope so the delegate can use it).
+static mog::Error MogMapNsError(NSError *err)
+{
+    const std::string msg = err.localizedDescription.UTF8String != nullptr
+                                ? std::string(err.localizedDescription.UTF8String)
+                                : "native request failed";
+    switch (err.code)
+    {
+    case NSURLErrorTimedOut:
+        return mog::Error{mog::ErrorCode::Timeout, msg};
+    case NSURLErrorCannotFindHost:
+    case NSURLErrorDNSLookupFailed:
+        return mog::Error{mog::ErrorCode::DnsFailed, msg};
+    case NSURLErrorCannotConnectToHost:
+    case NSURLErrorNetworkConnectionLost:
+    case NSURLErrorNotConnectedToInternet:
+        return mog::Error{mog::ErrorCode::ConnectFailed, msg};
+    case NSURLErrorSecureConnectionFailed:
+    case NSURLErrorServerCertificateUntrusted:
+    case NSURLErrorServerCertificateHasBadDate:
+    case NSURLErrorServerCertificateHasUnknownRoot:
+    case NSURLErrorServerCertificateNotYetValid:
+    case NSURLErrorClientCertificateRejected:
+    case NSURLErrorClientCertificateRequired:
+        return mog::Error{mog::ErrorCode::TlsFailed, msg};
+    case NSURLErrorHTTPTooManyRedirects:
+        return mog::Error{mog::ErrorCode::TooManyRedirects, msg};
+    case NSURLErrorBadURL:
+    case NSURLErrorUnsupportedURL:
+        return mog::Error{mog::ErrorCode::InvalidUrl, msg};
+    default:
+        return mog::Error{mog::ErrorCode::IoError, msg};
+    }
+}
 
 @interface MogSessionDelegate : NSObject <NSURLSessionDataDelegate>
 @property(nonatomic, assign) BOOL allowRedirects;
 @property(nonatomic, assign) BOOL verify;
-@property(nonatomic, assign) int redirectCount;
+@property(nonatomic, assign) MogAppleContext *ctx;
+@property(nonatomic, strong) id semHolder; // retains the dispatch_semaphore_t
+@property(nonatomic, assign) dispatch_semaphore_t sem;
 @end
 
 @implementation MogSessionDelegate
@@ -53,12 +109,106 @@
     (void)response;
     if (self.allowRedirects)
     {
-        self.redirectCount += 1;
+        if (self.ctx != nullptr)
+        {
+            self.ctx->redirects += 1;
+        }
         completionHandler(request);
     }
     else
     {
         completionHandler(nil); // stop; the 3xx response is returned as-is
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+              dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveResponse:(NSURLResponse *)response
+     completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
+{
+    (void)session;
+    (void)dataTask;
+    auto *ctx = self.ctx;
+    if (ctx != nullptr && [response isKindOfClass:[NSHTTPURLResponse class]])
+    {
+        auto *http = static_cast<NSHTTPURLResponse *>(response);
+        ctx->status = static_cast<int>(http.statusCode);
+        if (http.URL != nil)
+        {
+            ctx->url = std::string(http.URL.absoluteString.UTF8String);
+        }
+        ctx->headers.clear();
+        for (NSString *key in http.allHeaderFields)
+        {
+            NSString *value = [NSString stringWithFormat:@"%@", http.allHeaderFields[key]];
+            ctx->headers.push_back(
+                mog::Header{std::string(key.UTF8String), std::string(value.UTF8String)});
+        }
+    }
+    completionHandler(NSURLSessionResponseAllow);
+}
+
+- (void)URLSession:(NSURLSession *)session
+          dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveData:(NSData *)data
+{
+    (void)session;
+    auto *ctx = self.ctx;
+    if (ctx == nullptr)
+    {
+        return;
+    }
+    __block bool abort = false;
+    [data enumerateByteRangesUsingBlock:^(const void *bytes, NSRange range, BOOL *stop) {
+      const std::size_t n = range.length;
+      if (ctx->max_bytes > 0 && ctx->received + n > ctx->max_bytes)
+      {
+          ctx->had_error = true;
+          ctx->error = mog::Error{mog::ErrorCode::ResponseTooLarge,
+                                  "response exceeds max_response_bytes"};
+          abort = true;
+          *stop = YES;
+          return;
+      }
+      ctx->received += n;
+      if (ctx->writer != nullptr && *ctx->writer)
+      {
+          auto w = (*ctx->writer)(std::string_view(static_cast<const char *>(bytes), n));
+          if (!w)
+          {
+              ctx->had_error = true;
+              ctx->error = w.error();
+              abort = true;
+              *stop = YES;
+              return;
+          }
+      }
+      else
+      {
+          ctx->body.append(static_cast<const char *>(bytes), n);
+      }
+    }];
+    if (abort)
+    {
+        [dataTask cancel];
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+                    task:(NSURLSessionTask *)task
+    didCompleteWithError:(NSError *)error
+{
+    (void)session;
+    (void)task;
+    auto *ctx = self.ctx;
+    if (ctx != nullptr && error != nil && !ctx->had_error)
+    {
+        ctx->had_error = true;
+        ctx->error = MogMapNsError(error);
+    }
+    if (self.sem != nullptr)
+    {
+        dispatch_semaphore_signal(self.sem);
     }
 }
 
@@ -127,40 +277,6 @@ std::map<std::string, std::string> CollectCookies(const std::vector<Header> &hea
     return cookies;
 }
 
-Error MapError(NSError *err)
-{
-    const std::string msg = err.localizedDescription.UTF8String != nullptr
-                                ? std::string(err.localizedDescription.UTF8String)
-                                : "native request failed";
-    switch (err.code)
-    {
-    case NSURLErrorTimedOut:
-        return Error{ErrorCode::Timeout, msg};
-    case NSURLErrorCannotFindHost:
-    case NSURLErrorDNSLookupFailed:
-        return Error{ErrorCode::DnsFailed, msg};
-    case NSURLErrorCannotConnectToHost:
-    case NSURLErrorNetworkConnectionLost:
-    case NSURLErrorNotConnectedToInternet:
-        return Error{ErrorCode::ConnectFailed, msg};
-    case NSURLErrorSecureConnectionFailed:
-    case NSURLErrorServerCertificateUntrusted:
-    case NSURLErrorServerCertificateHasBadDate:
-    case NSURLErrorServerCertificateHasUnknownRoot:
-    case NSURLErrorServerCertificateNotYetValid:
-    case NSURLErrorClientCertificateRejected:
-    case NSURLErrorClientCertificateRequired:
-        return Error{ErrorCode::TlsFailed, msg};
-    case NSURLErrorHTTPTooManyRedirects:
-        return Error{ErrorCode::TooManyRedirects, msg};
-    case NSURLErrorBadURL:
-    case NSURLErrorUnsupportedURL:
-        return Error{ErrorCode::InvalidUrl, msg};
-    default:
-        return Error{ErrorCode::IoError, msg};
-    }
-}
-
 class AppleNativeTransport final : public Transport
 {
   public:
@@ -179,14 +295,11 @@ class AppleNativeTransport final : public Transport
         return true;
     }
 
-    // NSURLSession here does not implement streaming, Digest, or PEM CA/mTLS;
-    // Auto falls back to embedded for those.
+    // NSURLSession streams and enforces max_response_bytes; it does not implement
+    // Digest (later slice) or PEM CA/mTLS (intentional delta — it uses the OS
+    // trust store/keychain). Auto falls back to embedded for those.
     [[nodiscard]] bool Supports(const Options &options) const noexcept override
     {
-        if (options.response_writer)
-        {
-            return false;
-        }
         if (options.auth.kind == Auth::Kind::Digest)
         {
             return false;
@@ -228,65 +341,52 @@ class AppleNativeTransport final : public Transport
             req.timeoutInterval =
                 static_cast<double>(IoTimeout(options).count()) / 1000.0;
 
+            // A data-task delegate delivers body bytes incrementally (streaming to
+            // response_writer or buffering), so nothing large sits in memory and the
+            // byte cap is enforced as data arrives. All Obj-C -> C++ extraction runs
+            // on the delegate queue into `ctx`; the calling thread only reads C++.
+            MogAppleContext ctx;
+            ctx.max_bytes = options.max_response_bytes;
+            ctx.url = url_str;
+            if (options.response_writer)
+            {
+                ctx.writer = &options.response_writer;
+            }
+
             NSURLSessionConfiguration *cfg =
                 [NSURLSessionConfiguration ephemeralSessionConfiguration];
+            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
             MogSessionDelegate *delegate = [[MogSessionDelegate alloc] init];
             delegate.allowRedirects = options.allow_redirects ? YES : NO;
             delegate.verify = options.verify_tls ? YES : NO;
-            delegate.redirectCount = 0;
+            delegate.ctx = &ctx;
+            delegate.semHolder = sem; // keep it alive under ARC
+            delegate.sem = sem;
             NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg
                                                                  delegate:delegate
                                                             delegateQueue:nil];
 
-            // Extract everything into C++ inside the completion block, while the
-            // Obj-C objects are alive and owned by the block. The calling thread
-            // must not message any Obj-C object after the block completes (the
-            // task/block, and its captured objects, are released on invalidate).
-            __block bool had_error = false;
-            __block Error error{ErrorCode::IoError, "native request failed"};
-            __block Response response;
-            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-            NSURLSessionDataTask *task =
-                [session dataTaskWithRequest:req
-                           completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
-                             if (e != nil)
-                             {
-                                 had_error = true;
-                                 error = MapError(e);
-                                 dispatch_semaphore_signal(sem);
-                                 return;
-                             }
-                             auto *http = static_cast<NSHTTPURLResponse *>(r);
-                             response.status_code = static_cast<int>(http.statusCode);
-                             response.url = http.URL != nil
-                                                ? std::string(http.URL.absoluteString.UTF8String)
-                                                : url_str;
-                             for (NSString *key in http.allHeaderFields)
-                             {
-                                 NSString *value =
-                                     [NSString stringWithFormat:@"%@", http.allHeaderFields[key]];
-                                 response.headers.push_back(Header{std::string(key.UTF8String),
-                                                                   std::string(value.UTF8String)});
-                             }
-                             if (d != nil && d.length > 0)
-                             {
-                                 response.body.assign(static_cast<const char *>(d.bytes), d.length);
-                             }
-                             dispatch_semaphore_signal(sem);
-                           }];
+            NSURLSessionDataTask *task = [session dataTaskWithRequest:req];
             [task resume];
             dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            const int redirects = delegate.redirectCount; // delegate still retained by session
             [session finishTasksAndInvalidate];
 
-            if (had_error)
+            if (ctx.had_error)
             {
-                MOG_LOG_WARN("native: request failed: {}", std::string{error.message()});
-                return Result<Response>::Err(std::move(error));
+                MOG_LOG_WARN("native: request failed: {}", std::string{ctx.error.message()});
+                return Result<Response>::Err(std::move(ctx.error));
             }
 
-            response.downloaded_bytes = response.body.size();
-            response.history_len = redirects;
+            Response response;
+            response.status_code = ctx.status;
+            response.url = !ctx.url.empty() ? ctx.url : url_str;
+            response.headers = std::move(ctx.headers);
+            if (!options.response_writer)
+            {
+                response.body = std::move(ctx.body); // delivered to the writer otherwise
+            }
+            response.downloaded_bytes = ctx.received;
+            response.history_len = ctx.redirects;
             response.backend = "native";
             response.cookies = CollectCookies(response.headers);
             response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -158,10 +158,43 @@ const CurlApi &LoadCurl()
     return api;
 }
 
+// Body sink for curl: either streams to a BodyWriter or buffers into a string,
+// enforcing max_response_bytes. Returning a short count aborts the transfer.
+struct WriteContext
+{
+    const BodyWriter *writer = nullptr; // streaming target (points at options.response_writer)
+    std::string *buffer = nullptr;      // buffered target when writer is null
+    std::size_t max_bytes = 0;          // 0 = unlimited
+    std::size_t received = 0;
+    bool aborted = false;
+    Error error{ErrorCode::IoError, "curl write aborted"};
+};
+
 extern "C" std::size_t CurlWriteBody(char *ptr, std::size_t size, std::size_t nmemb, void *userdata)
 {
+    auto *ctx = static_cast<WriteContext *>(userdata);
     const std::size_t n = size * nmemb;
-    static_cast<std::string *>(userdata)->append(ptr, n);
+    if (ctx->max_bytes > 0 && ctx->received + n > ctx->max_bytes)
+    {
+        ctx->aborted = true;
+        ctx->error = Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"};
+        return 0; // signals CURLE_WRITE_ERROR
+    }
+    ctx->received += n;
+    if (ctx->writer != nullptr && *ctx->writer)
+    {
+        auto w = (*ctx->writer)(std::string_view(ptr, n));
+        if (!w)
+        {
+            ctx->aborted = true;
+            ctx->error = w.error();
+            return 0;
+        }
+    }
+    else if (ctx->buffer != nullptr)
+    {
+        ctx->buffer->append(ptr, n);
+    }
     return n;
 }
 
@@ -300,13 +333,9 @@ class CurlTransport final : public Transport
     // Digest challenge/retry; Auto falls back to embedded for those.
     [[nodiscard]] bool Supports(const Options &options) const noexcept override
     {
-        if (options.response_writer)
-        {
-            return false;
-        }
         if (options.auth.kind == Auth::Kind::Digest)
         {
-            return false;
+            return false; // wired in a later slice
         }
         return true;
     }
@@ -335,10 +364,22 @@ class CurlTransport final : public Transport
         std::vector<Header> header_out;
         std::string method_str{ToString(method)};
 
+        WriteContext wctx;
+        wctx.max_bytes = options.max_response_bytes;
+        const bool streaming = static_cast<bool>(options.response_writer);
+        if (streaming)
+        {
+            wctx.writer = &options.response_writer;
+        }
+        else
+        {
+            wctx.buffer = &body_out;
+        }
+
         api.easy_setopt(handle, CURLOPT_URL, full_url.c_str());
         api.easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
         api.easy_setopt(handle, CURLOPT_WRITEFUNCTION, &CurlWriteBody);
-        api.easy_setopt(handle, CURLOPT_WRITEDATA, static_cast<void *>(&body_out));
+        api.easy_setopt(handle, CURLOPT_WRITEDATA, static_cast<void *>(&wctx));
         api.easy_setopt(handle, CURLOPT_HEADERFUNCTION, &CurlWriteHeader);
         api.easy_setopt(handle, CURLOPT_HEADERDATA, static_cast<void *>(&header_out));
         api.easy_setopt(handle, CURLOPT_CUSTOMREQUEST, method_str.c_str());
@@ -408,7 +449,9 @@ class CurlTransport final : public Transport
         const CURLcode rc = api.easy_perform(handle);
         if (rc != CURLE_OK)
         {
-            Error err = MapCurlError(api, rc);
+            // A write-callback abort (size cap or writer error) surfaces as a curl
+            // write error; prefer our specific reason.
+            Error err = wctx.aborted ? wctx.error : MapCurlError(api, rc);
             if (slist != nullptr)
             {
                 api.slist_free_all(slist);
@@ -435,8 +478,11 @@ class CurlTransport final : public Transport
         response.status_code = static_cast<int>(status);
         response.url = effective_url != nullptr ? std::string(effective_url) : full_url;
         response.headers = std::move(header_out);
-        response.body = std::move(body_out);
-        response.downloaded_bytes = response.body.size();
+        if (!streaming)
+        {
+            response.body = std::move(body_out); // body already delivered to the writer otherwise
+        }
+        response.downloaded_bytes = wctx.received;
         response.history_len = static_cast<int>(redirects);
         response.backend = "curl";
         response.cookies = CollectCookies(response.headers);
