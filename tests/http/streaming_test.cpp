@@ -169,7 +169,10 @@ TEST(Streaming, DoesNotAdvertiseAcceptEncoding)
     std::string got;
     mog::Options opts;
     opts.response_writer = CollectInto(got);
-    // decompress defaults to true, but a writer must suppress Accept-Encoding.
+    // Embedded-specific: when streaming, the embedded backend suppresses
+    // Accept-Encoding so the writer receives identity bytes. (Native backends
+    // negotiate + transparently decompress instead — a different, valid approach.)
+    opts.backend = mog::Backend::Embedded;
 
     auto r = mog::get(server.origin() + "/ae", opts);
     ASSERT_TRUE(r) << r.error().to_string();

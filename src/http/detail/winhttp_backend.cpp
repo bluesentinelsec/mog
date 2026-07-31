@@ -34,6 +34,7 @@
 #include <cwchar>
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <winhttp.h>
 
@@ -244,14 +245,12 @@ class WinHttpTransport final : public Transport
     // the Windows cert store); Auto falls back to embedded for those.
     [[nodiscard]] bool Supports(const Options &options) const noexcept override
     {
-        if (options.response_writer)
-        {
-            return false;
-        }
         if (options.auth.kind == Auth::Kind::Digest)
         {
-            return false;
+            return false; // wired in a later slice
         }
+        // Intentional delta: WinHTTP uses the Windows cert store, so a PEM CA
+        // bundle or PEM client certificate routes to a PEM-capable backend.
         if (options.ca_bundle.has_value() || options.client_cert.has_value())
         {
             return false;
@@ -390,7 +389,9 @@ class WinHttpTransport final : public Transport
             }
         }
 
+        const bool streaming = static_cast<bool>(options.response_writer);
         std::string body;
+        std::size_t received = 0;
         for (;;)
         {
             DWORD avail = 0;
@@ -412,7 +413,25 @@ class WinHttpTransport final : public Transport
             {
                 break;
             }
-            body.append(chunk.data(), read);
+            if (options.max_response_bytes > 0 &&
+                received + static_cast<std::size_t>(read) > options.max_response_bytes)
+            {
+                return Result<Response>::Err(
+                    Error{ErrorCode::ResponseTooLarge, "response exceeds max_response_bytes"});
+            }
+            received += static_cast<std::size_t>(read);
+            if (streaming)
+            {
+                auto w = options.response_writer(std::string_view(chunk.data(), read));
+                if (!w)
+                {
+                    return Result<Response>::Err(w.error());
+                }
+            }
+            else
+            {
+                body.append(chunk.data(), read);
+            }
         }
 
         std::string effective_url = full_url;
@@ -431,8 +450,8 @@ class WinHttpTransport final : public Transport
         response.status_code = static_cast<int>(status);
         response.url = effective_url;
         response.headers = std::move(response_headers);
-        response.body = std::move(body);
-        response.downloaded_bytes = response.body.size();
+        response.body = std::move(body); // empty when streaming (delivered to the writer)
+        response.downloaded_bytes = received;
         response.backend = "winhttp";
         response.cookies = CollectCookies(response.headers);
         response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
