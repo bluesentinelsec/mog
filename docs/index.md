@@ -25,7 +25,7 @@ The result is a client you can **static-link into a single binary** and run anyw
 - **No dependency headaches.** The embedded backend needs nothing installed to build or run.
 - **Native where it counts.** `Auto` uses the OS stack (HTTP/2, system trust) when it is present.
 - **Graceful fallback.** When no native library is available, mog transparently uses embedded.
-- **Requests-style API** with a **curl-style CLI**.
+- **Requests-style API**, a **curl-style CLI**, and a **C API** for C and FFI runtimes like Python ctypes.
 
 ## Quick start
 

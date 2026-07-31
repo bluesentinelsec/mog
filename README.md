@@ -61,7 +61,7 @@ if (r) {
 - **Static and self-contained.** The embedded backend bundles HTTP/1.1, mbedTLS, and the Mozilla CA roots. It runs on scratch images.
 - **OS-native backends.** curl (`dlopen`), NSURLSession, and WinHTTP are preferred automatically, and they are at feature parity with the fallback.
 - **Hybrid TLS trust.** The system store is tried first, then the embedded roots. HTTPS verifies everywhere.
-- **Requests-style library and a curl-style CLI.**
+- **Requests-style library, a curl-style CLI, and a C API.** The C binding (`mog/mog_c.h`, shipped as a shared library) makes mog callable from C and from FFI runtimes like Python ctypes.
 - Redirects, cookies (domain, path, and Secure), gzip and deflate, streaming download, multipart upload, Basic, Bearer, and Digest auth, mTLS, HTTP proxy, and JSON interop.
 
 ## Backends
@@ -83,6 +83,7 @@ Select one explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 - **[CLI Manual](docs/cli.md)**: every flag, exit codes, environment variables, and write-out tokens.
 - **[Guide](docs/guide.md)**: backends, TLS trust, request behavior, and static or scratch deployment.
 - **[Library](docs/library.md)**: the C++ API, covering `Options`, `Response`, `Session`, streaming, multipart, and auth.
+- **[C API](docs/c-api.md)**: the C binding for C programs and FFI runtimes such as Python ctypes.
 
 ## Build
 
