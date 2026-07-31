@@ -29,12 +29,12 @@ a body (`-d`, `--json`, `-F`) and no explicit method, `mog` promotes `GET` to
 | Flag | Argument | Description |
 |------|----------|-------------|
 | `-X, --request` | `METHOD` | HTTP method for the bare form (default `GET`). |
-| `-I, --head` | — | Issue a `HEAD` request (headers only, no body). |
+| `-I, --head` | (none) | Issue a `HEAD` request (headers only, no body). |
 | `-H, --header` | `Name: value` | Add a request header. Repeatable. A caller-set header wins over mog's default of the same name. |
 | `-d, --data` | `DATA` | Request body. `@file` reads the body from a file. Implies `POST` if the method is `GET`. |
 | `--json` | `DATA` | JSON body; sets `Content-Type: application/json`. `@file` reads from a file. Implies `POST`. |
 | `-F, --form` | `part` | `multipart/form-data` part. Repeatable. See [multipart forms](#multipart-forms). |
-| `-G, --get` | — | Send `-d` data as a query string on a `GET` instead of a body. |
+| `-G, --get` | (none) | Send `-d` data as a query string on a `GET` instead of a body. |
 | `-b, --cookie` | `"a=1; b=2"` | Cookies to send, as a `Cookie` header value. |
 | `-A, --user-agent` | `UA` | `User-Agent` header (default `mog/<version>`). |
 | `-e, --referer` | `URL` | `Referer` header. |
@@ -57,14 +57,14 @@ a body (`-d`, `--json`, `-F`) and no explicit method, `mog` promotes `GET` to
 | Flag | Argument | Description |
 |------|----------|-------------|
 | `-u, --user` | `user:password` | Basic authentication (or the credentials for `--digest`). |
-| `--digest` | — | Use HTTP Digest auth with the `-u` credentials (challenge/response; sent after a `401`). |
+| `--digest` | (none) | Use HTTP Digest auth with the `-u` credentials (challenge/response; sent after a `401`). |
 | `--bearer` | `TOKEN` | `Authorization: Bearer <TOKEN>`. |
 
 ## TLS options
 
 | Flag | Argument | Description |
 |------|----------|-------------|
-| `-k, --insecure` | — | Disable TLS certificate verification. Debugging only. |
+| `-k, --insecure` | (none) | Disable TLS certificate verification. Debugging only. |
 | `--cacert` | `PATH` | PEM CA bundle to trust (highest precedence). Routes to a PEM-capable backend under `Auto`. |
 | `-E, --cert` | `PATH` | Client certificate PEM for mutual TLS (mTLS). |
 | `--key` | `PATH` | Client private-key PEM (defaults to `--cert` when omitted). |
@@ -80,7 +80,7 @@ See [TLS trust](guide.html#tls-trust) for how CA roots are resolved.
 | `--timeout` | `SECONDS` | Overall I/O timeout (default `30`). |
 | `--connect-timeout` | `SECONDS` | Connect-only timeout (defaults to `--timeout`). |
 | `--max-redirs` | `N` | Maximum redirects to follow (default `5`). |
-| `--no-location` | — | Do not follow redirects; return the `3xx` response as-is. |
+| `--no-location` | (none) | Do not follow redirects; return the `3xx` response as-is. |
 
 ## Output options
 
@@ -88,15 +88,15 @@ See [TLS trust](guide.html#tls-trust) for how CA roots are resolved.
 |------|----------|-------------|
 | `-o, --output` | `FILE` | Write the response body to a file. Streamed to disk (constant memory). `/dev/null` discards it. |
 | `-D, --dump-header` | `FILE` | Write the response headers to a file. |
-| `-i, --include` | — | Include response headers before the body in the output. |
-| `-f, --fail` | — | Exit non-zero (`22`) on HTTP `4xx`/`5xx` instead of printing the error body. |
+| `-i, --include` | (none) | Include response headers before the body in the output. |
+| `-f, --fail` | (none) | Exit non-zero (`22`) on HTTP `4xx`/`5xx` instead of printing the error body. |
 | `-w, --write-out` | `FORMAT` | After the transfer, write `FORMAT` to stderr with tokens expanded. See [write-out tokens](#write-out-tokens). |
 
 ## Content options
 
 | Flag | Argument | Description |
 |------|----------|-------------|
-| `--no-decompress` | — | Do not advertise or decode `Content-Encoding` (`gzip`/`deflate`); deliver the body as-is. |
+| `--no-decompress` | (none) | Do not advertise or decode `Content-Encoding` (`gzip`/`deflate`); deliver the body as-is. |
 
 ## Backend selection
 
@@ -104,16 +104,16 @@ See [TLS trust](guide.html#tls-trust) for how CA roots are resolved.
 |------|----------|-------------|
 | `--backend` | `NAME` | Force a backend: `auto` (default), `embedded`, `curl`, `winhttp`, `native`. Overrides `MOG_BACKEND`. |
 
-`auto` prefers the platform-native backend and falls back to embedded — see
-[Backends](guide.html#backends). An explicit choice is used exactly (no fallback).
+`auto` prefers the platform-native backend and falls back to embedded. See
+[Backends](guide.html#backends). An explicit choice is used exactly, with no fallback.
 
 ## Logging options
 
 | Flag | Argument | Description |
 |------|----------|-------------|
-| `-v, --verbose` | — | Debug-level logging (request/response detail). |
-| `-s, --silent` | — | Silent: suppress logs (the body is still written to output). |
-| `-S, --show-error` | — | Show error messages even under `--silent`. |
+| `-v, --verbose` | (none) | Debug-level logging (request/response detail). |
+| `-s, --silent` | (none) | Silent: suppress logs (the body is still written to output). |
+| `-S, --show-error` | (none) | Show error messages even under `--silent`. |
 | `--log-level` | `LEVEL` | Explicit level: `trace \| debug \| info \| warn \| error \| critical \| off`. Overrides `-v`/`-s`. |
 
 ## Misc

@@ -1,6 +1,6 @@
 ---
 title: Library
-description: Using mog as a C++ library — requests-style free functions, Session, Options, Response, JSON, streaming, multipart, and auth.
+description: "Using mog as a C++ library: requests-style free functions, Session, Options, Response, JSON, streaming, multipart, and auth."
 ---
 
 # Library
