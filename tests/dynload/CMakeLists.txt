@@ -5,4 +5,4 @@ target_link_libraries(mog_dynload_test
     GTest::gtest_main
 )
 cppboot_set_project_warnings(mog_dynload_test)
-gtest_discover_tests(mog_dynload_test)
+gtest_discover_tests(mog_dynload_test DISCOVERY_TIMEOUT ${MOG_GTEST_DISCOVERY_TIMEOUT})

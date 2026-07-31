@@ -13,6 +13,7 @@ COPY . .
 RUN cmake -S . -B build -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DMOG_BUILD_TESTS=OFF -DMOG_BUILD_BENCHMARKS=OFF -DMOG_BUILD_APP=ON \
+      -DMOG_BUILD_C_SHARED=OFF \
       -DCMAKE_EXE_LINKER_FLAGS="-static" \
  && cmake --build build --target mog_app --parallel \
  && strip build/bin/mog

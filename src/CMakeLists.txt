@@ -4,6 +4,7 @@ add_subdirectory(version)
 add_subdirectory(dynload)
 add_subdirectory(http)
 add_subdirectory(cli)
+add_subdirectory(c_api)
 
 # Painfully obvious program entrypoint: src/main.cpp
 # Skipped when this project is consumed via add_subdirectory / FetchContent
