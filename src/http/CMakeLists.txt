@@ -6,11 +6,13 @@ target_sources(${PROJECT_NAME}_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/options.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/response.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/http.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/server.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/log.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/url.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/socket.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/detail/tcp_listener.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/prepare.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/content_encoding.cpp
