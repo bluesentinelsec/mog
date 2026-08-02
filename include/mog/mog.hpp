@@ -1,6 +1,6 @@
 /**
  * @file mog.hpp
- * @brief Umbrella header for the mog HTTP client library.
+ * @brief Umbrella header for the mog HTTP client and server library.
  */
 #pragma once
 
@@ -12,6 +12,7 @@
 #include "mog/log.hpp"
 #include "mog/options.hpp"
 #include "mog/response.hpp"
+#include "mog/server.hpp"
 #include "mog/session.hpp"
 #include "mog/util.hpp"
 #include "mog/version.hpp"

@@ -29,6 +29,13 @@ class TcpSocket
     [[nodiscard]] static Result<TcpSocket> Connect(std::string_view host, std::uint16_t port,
                                                    std::chrono::milliseconds timeout);
 
+    /**
+     * @brief Take ownership of an already-connected native socket (e.g. from
+     *        accept()) and put it in non-blocking mode.
+     * @return An error if the descriptor cannot be configured.
+     */
+    [[nodiscard]] static Result<TcpSocket> Adopt(std::intptr_t fd);
+
     [[nodiscard]] Result<std::size_t> SendAll(const void *data, std::size_t len,
                                               std::chrono::milliseconds timeout);
     [[nodiscard]] Result<std::size_t> RecvSome(void *data, std::size_t len,

@@ -341,6 +341,30 @@ Result<TcpSocket> TcpSocket::Connect(std::string_view host, std::uint16_t port,
     return Result<TcpSocket>::Ok(TcpSocket{chosen});
 }
 
+Result<TcpSocket> TcpSocket::Adopt(std::intptr_t fd)
+{
+    if (fd == kInvalid)
+    {
+        return Result<TcpSocket>::Err(Error{ErrorCode::IoError, "invalid socket descriptor"});
+    }
+#if !defined(_WIN32) && defined(SO_NOSIGPIPE)
+    const int one = 1;
+    setsockopt(static_cast<int>(fd), SOL_SOCKET, SO_NOSIGPIPE, &one,
+               static_cast<socklen_type>(sizeof(one)));
+#endif
+    if (!SetNonBlocking(fd, true))
+    {
+#if defined(_WIN32)
+        closesocket(static_cast<SOCKET>(fd));
+#else
+        ::close(static_cast<int>(fd));
+#endif
+        return Result<TcpSocket>::Err(
+            Error{ErrorCode::IoError, "failed to set non-blocking mode on accepted socket"});
+    }
+    return Result<TcpSocket>::Ok(TcpSocket{fd});
+}
+
 Result<std::size_t> TcpSocket::SendAll(const void *data, std::size_t len,
                                        std::chrono::milliseconds timeout)
 {
