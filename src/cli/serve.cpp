@@ -63,8 +63,6 @@ Result<ServerOptions> BuildServeOptions(const ServeArgs &args)
 
 #if defined(MOG_HAS_CLI11) && MOG_HAS_CLI11
 
-#include <CLI/CLI.hpp>
-
 namespace mog::cli
 {
 namespace
@@ -77,49 +75,154 @@ extern "C" void OnStopSignal(int)
     g_stop.store(true);
 }
 
+const char *const kServeHelp =
+    "Usage: mog serve [DIRECTORY] [OPTIONS]\n"
+    "\n"
+    "Serve a directory over HTTP/S (defaults to the current directory).\n"
+    "\n"
+    "Options:\n"
+    "  --port N            Port to listen on (default 8000)\n"
+    "  --bind ADDR         Address to bind (default 127.0.0.1)\n"
+    "  --threads N         Worker threads (0 = auto)\n"
+    "  --self-signed       Serve HTTPS with an ephemeral self-signed certificate\n"
+    "  --tls-cert FILE     TLS certificate chain (PEM) for HTTPS\n"
+    "  --tls-key FILE      TLS private key (PEM) for HTTPS\n"
+    "  --no-listing        Disable directory listings\n"
+    "  -h, --help          Show this help\n";
+
+// Split "--opt=value" into name and value; returns false when there is no '='.
+bool SplitInline(const std::string &arg, std::string &name, std::string &value)
+{
+    const auto eq = arg.find('=');
+    if (eq == std::string::npos)
+    {
+        return false;
+    }
+    name = arg.substr(0, eq);
+    value = arg.substr(eq + 1);
+    return true;
+}
+
 } // namespace
 
+// Hand-rolled parser: a leading positional directory plus a few long options.
+// This avoids CLI11's platform-specific argv handling for a small, well-defined
+// argument set, and keeps `mog serve` behavior identical on every OS.
 Result<ServeArgs> ParseServeArgv(int argc, char **argv)
 {
-    // argv is the full process argv with argv[1] == "serve". Re-parse the tail
-    // (everything after the "serve" token) with a dedicated CLI11 app.
     ServeArgs args;
-    CLI::App app{"mog serve — serve a directory over HTTP/S"};
-    app.add_option("directory", args.directory, "Directory to serve (default: current directory)");
-    app.add_option("--port", args.port, "Port to listen on")->default_val(8000);
-    app.add_option("--bind", args.bind_address, "Address to bind")->default_val("127.0.0.1");
-    app.add_option("--threads", args.threads, "Worker threads (0 = auto)")->default_val(0);
-    app.add_flag("--self-signed", args.self_signed,
-                 "Serve HTTPS with an ephemeral self-signed certificate");
-    app.add_option("--tls-cert", args.tls_cert, "TLS certificate chain (PEM) for HTTPS");
-    app.add_option("--tls-key", args.tls_key, "TLS private key (PEM) for HTTPS");
-    app.add_flag("--no-listing", args.no_listing, "Disable directory listings");
+    bool directory_set = false;
 
-    std::vector<char *> shifted;
-    shifted.reserve(static_cast<std::size_t>(argc));
-    if (argc > 0)
+    // Fetch the value for an option, supporting both "--opt value" and inline
+    // values already split out by the caller.
+    auto take_value = [&](int &i, const std::string &name, const std::string &inline_value,
+                          bool has_inline, std::string &out) -> Result<void> {
+        if (has_inline)
+        {
+            out = inline_value;
+            return Result<void>::Ok();
+        }
+        if (i + 1 >= argc || argv[i + 1] == nullptr)
+        {
+            return Result<void>::Err(
+                Error{ErrorCode::InvalidArgument, "missing value for " + name});
+        }
+        out = argv[++i];
+        return Result<void>::Ok();
+    };
+
+    for (int i = 2; i < argc; ++i) // skip argv[0] (program) and argv[1] ("serve")
     {
-        shifted.push_back(argv[0]);
-    }
-    for (int i = 2; i < argc; ++i) // skip argv[1] == "serve"
-    {
-        shifted.push_back(argv[i]);
+        const std::string raw = argv[i] != nullptr ? argv[i] : "";
+        std::string name = raw;
+        std::string inline_value;
+        const bool has_inline = SplitInline(raw, name, inline_value);
+
+        if (name == "-h" || name == "--help")
+        {
+            std::cout << kServeHelp;
+            return Result<ServeArgs>::Err(Error{ErrorCode::InvalidArgument, kServeHelpShown});
+        }
+        else if (name == "--self-signed")
+        {
+            args.self_signed = true;
+        }
+        else if (name == "--no-listing")
+        {
+            args.no_listing = true;
+        }
+        else if (name == "--bind")
+        {
+            auto v = take_value(i, name, inline_value, has_inline, args.bind_address);
+            if (!v)
+            {
+                return Result<ServeArgs>::Err(v.error());
+            }
+        }
+        else if (name == "--tls-cert")
+        {
+            auto v = take_value(i, name, inline_value, has_inline, args.tls_cert);
+            if (!v)
+            {
+                return Result<ServeArgs>::Err(v.error());
+            }
+        }
+        else if (name == "--tls-key")
+        {
+            auto v = take_value(i, name, inline_value, has_inline, args.tls_key);
+            if (!v)
+            {
+                return Result<ServeArgs>::Err(v.error());
+            }
+        }
+        else if (name == "--port" || name == "--threads")
+        {
+            std::string value;
+            auto v = take_value(i, name, inline_value, has_inline, value);
+            if (!v)
+            {
+                return Result<ServeArgs>::Err(v.error());
+            }
+            try
+            {
+                const unsigned long parsed = std::stoul(value);
+                if (name == "--port")
+                {
+                    if (parsed > 65535UL)
+                    {
+                        return Result<ServeArgs>::Err(
+                            Error{ErrorCode::InvalidArgument, "--port out of range: " + value});
+                    }
+                    args.port = static_cast<std::uint16_t>(parsed);
+                }
+                else
+                {
+                    args.threads = static_cast<unsigned>(parsed);
+                }
+            }
+            catch (...)
+            {
+                return Result<ServeArgs>::Err(
+                    Error{ErrorCode::InvalidArgument, "invalid number for " + name + ": " + value});
+            }
+        }
+        else if (!name.empty() && name[0] == '-')
+        {
+            return Result<ServeArgs>::Err(
+                Error{ErrorCode::InvalidArgument, "unknown option: " + raw});
+        }
+        else if (!directory_set)
+        {
+            args.directory = raw;
+            directory_set = true;
+        }
+        else
+        {
+            return Result<ServeArgs>::Err(
+                Error{ErrorCode::InvalidArgument, "unexpected argument: " + raw});
+        }
     }
 
-    try
-    {
-        app.parse(static_cast<int>(shifted.size()), shifted.data());
-    }
-    catch (const CLI::CallForHelp &)
-    {
-        std::cout << app.help();
-        // Sentinel: help was printed; the caller should exit 0 without an error.
-        return Result<ServeArgs>::Err(Error{ErrorCode::InvalidArgument, kServeHelpShown});
-    }
-    catch (const CLI::ParseError &e)
-    {
-        return Result<ServeArgs>::Err(Error{ErrorCode::InvalidArgument, e.what()});
-    }
     return Result<ServeArgs>::Ok(std::move(args));
 }
 
