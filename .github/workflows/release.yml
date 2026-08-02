@@ -178,30 +178,37 @@ jobs:
         run: |
           set -euo pipefail
           major="${RELEASE_VERSION%%.*}"
+          # Tool output is written to files, then grepped, so `grep -q` closing a
+          # pipe early cannot make a tool die on SIGPIPE (LLVM tools treat a broken
+          # pipe as a hard error, which `pipefail` would surface as a failure).
           case "${RUNNER_OS}" in
             Linux)
               real=$(ls build/release/lib/libmog_c.so.* 2>/dev/null \
                      | grep -E "\.so\.[0-9]+\.[0-9]+\.[0-9]+$" | head -1)
               [ -n "${real}" ] || { echo "no versioned libmog_c.so"; exit 1; }
               echo "shared: ${real}"
-              readelf -d "${real}" | grep SONAME
-              readelf -d "${real}" | grep -q "libmog_c.so.${major}" \
+              readelf -d "${real}" > dyn.txt
+              grep SONAME dyn.txt || true
+              grep -q "libmog_c.so.${major}" dyn.txt \
                 || { echo "SONAME is not libmog_c.so.${major}"; exit 1; }
-              nm -D "${real}" | grep -qw mog_server_new || { echo "mog_server_new not exported"; exit 1; }
-              nm -D "${real}" | grep -qw mog_get || { echo "mog_get not exported"; exit 1; }
+              nm -D "${real}" > syms.txt
+              grep -qw mog_server_new syms.txt || { echo "mog_server_new not exported"; exit 1; }
+              grep -qw mog_get syms.txt || { echo "mog_get not exported"; exit 1; }
               ;;
             macOS)
               real=$(ls build/release/lib/libmog_c.*.dylib 2>/dev/null \
                      | grep -E "libmog_c\.[0-9]+\.[0-9]+\.[0-9]+\.dylib$" | head -1)
               [ -n "${real}" ] || { echo "no versioned libmog_c dylib"; exit 1; }
               echo "shared: ${real}"
-              otool -D "${real}"
-              otool -D "${real}" | grep -q "@rpath/libmog_c.${major}.dylib" \
+              otool -D "${real}" > install_name.txt
+              cat install_name.txt
+              grep -q "@rpath/libmog_c.${major}.dylib" install_name.txt \
                 || { echo "install_name is not @rpath/libmog_c.${major}.dylib"; exit 1; }
-              # Check for defined external symbols (T). Avoid `nm -U`, whose meaning
+              # Match defined external symbols (T). Avoid `nm -U`, whose meaning
               # differs across nm variants (defined-only vs undefined-only).
-              nm -g "${real}" | grep -qE "T _mog_server_new$" || { echo "mog_server_new not exported"; exit 1; }
-              nm -g "${real}" | grep -qE "T _mog_get$" || { echo "mog_get not exported"; exit 1; }
+              nm -g "${real}" > syms.txt
+              grep -qE "T _mog_server_new$" syms.txt || { echo "mog_server_new not exported"; exit 1; }
+              grep -qE "T _mog_get$" syms.txt || { echo "mog_get not exported"; exit 1; }
               ;;
             Windows)
               dll="build/release/bin/mog_c.dll"
