@@ -174,38 +174,125 @@ jobs:
             exit 1
           fi
 
+      - name: Verify shared library (soname / exports)
+        run: |
+          set -euo pipefail
+          major="${RELEASE_VERSION%%.*}"
+          case "${RUNNER_OS}" in
+            Linux)
+              real=$(ls build/release/lib/libmog_c.so.* 2>/dev/null \
+                     | grep -E "\.so\.[0-9]+\.[0-9]+\.[0-9]+$" | head -1)
+              [ -n "${real}" ] || { echo "no versioned libmog_c.so"; exit 1; }
+              echo "shared: ${real}"
+              readelf -d "${real}" | grep SONAME
+              readelf -d "${real}" | grep -q "libmog_c.so.${major}" \
+                || { echo "SONAME is not libmog_c.so.${major}"; exit 1; }
+              nm -D "${real}" | grep -qw mog_server_new || { echo "mog_server_new not exported"; exit 1; }
+              nm -D "${real}" | grep -qw mog_get || { echo "mog_get not exported"; exit 1; }
+              ;;
+            macOS)
+              real=$(ls build/release/lib/libmog_c.*.dylib 2>/dev/null \
+                     | grep -E "libmog_c\.[0-9]+\.[0-9]+\.[0-9]+\.dylib$" | head -1)
+              [ -n "${real}" ] || { echo "no versioned libmog_c dylib"; exit 1; }
+              echo "shared: ${real}"
+              otool -D "${real}"
+              otool -D "${real}" | grep -q "@rpath/libmog_c.${major}.dylib" \
+                || { echo "install_name is not @rpath/libmog_c.${major}.dylib"; exit 1; }
+              nm -gU "${real}" | grep -qw _mog_server_new || { echo "mog_server_new not exported"; exit 1; }
+              ;;
+            Windows)
+              dll="build/release/bin/mog_c.dll"
+              [ -f "${dll}" ] || { echo "no mog_c.dll"; exit 1; }
+              dumpbin -exports "${dll}" > exports.txt
+              grep -q "mog_server_new" exports.txt || { echo "mog_server_new not exported"; exit 1; }
+              grep -q "mog_get" exports.txt || { echo "mog_get not exported"; exit 1; }
+              test -f build/release/lib/mog_c.lib || { echo "missing import library mog_c.lib"; exit 1; }
+              ;;
+          esac
+          echo "shared library verification passed"
+
       - name: Package Release zip
         id: pkg
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import os, re, shutil, subprocess
+          import os, shutil, stat, zipfile
           from pathlib import Path
 
           app = os.environ["APP_NAME"]
           version = os.environ["RELEASE_VERSION"]
+          runner = os.environ.get("RUNNER_OS", "")
           os_name = {"Linux": "linux", "macOS": "macos", "Windows": "windows"}.get(
-              os.environ.get("RUNNER_OS", ""), os.environ.get("RUNNER_OS", "unknown").lower()
+              runner, runner.lower()
           )
           arch = {"X64": "x86_64", "ARM64": "arm64", "X86": "x86"}.get(
               os.environ.get("RUNNER_ARCH", ""), os.environ.get("RUNNER_ARCH", "unknown").lower()
           )
-          config = "release"
-          bin_dir = Path("build") / config / "bin"
-          stem = f"{app}-{os_name}-{arch}-{config}-{version}"
+          is_windows = runner == "Windows"
+
+          build = Path("build") / "release"
+          bin_dir = build / "bin"
+          lib_dir = build / "lib"
+          stem = f"{app}-{os_name}-{arch}-release-{version}"
           staging = Path("dist") / stem
           if staging.exists():
               shutil.rmtree(staging)
-          staging.mkdir(parents=True)
-          if not bin_dir.is_dir():
-              raise SystemExit(f"missing {bin_dir}")
-          for p in bin_dir.iterdir():
-              dest = staging / p.name
-              if p.is_file():
-                  shutil.copy2(p, dest)
-              elif p.is_dir():
-                  shutil.copytree(p, dest)
-          archive = shutil.make_archive(str(Path("dist") / stem), "zip", root_dir="dist", base_dir=stem)
+          (staging / "lib").mkdir(parents=True)
+          (staging / "include" / "mog").mkdir(parents=True)
+
+          # CLI executable at the archive root.
+          exe = bin_dir / (app + (".exe" if is_windows else ""))
+          if not exe.is_file():
+              raise SystemExit(f"missing CLI binary {exe}")
+          shutil.copy2(exe, staging / exe.name)
+
+          # Shared C library (libmog_c) plus link material.
+          if is_windows:
+              dll = bin_dir / "mog_c.dll"
+              if not dll.is_file():
+                  raise SystemExit(f"missing {dll}")
+              shutil.copy2(dll, staging / dll.name)          # next to the exe
+              imp = lib_dir / "mog_c.lib"
+              if imp.is_file():
+                  shutil.copy2(imp, staging / "lib" / imp.name)  # import library
+          else:
+              shared = [p for p in lib_dir.iterdir()
+                        if p.name.startswith("libmog_c") and not p.name.endswith(".a")]
+              if not shared:
+                  raise SystemExit(f"no libmog_c shared library in {lib_dir}")
+              for p in shared:
+                  dest = staging / "lib" / p.name
+                  if p.is_symlink():
+                      os.symlink(os.readlink(p), dest)       # preserve soname chain
+                  else:
+                      shutil.copy2(p, dest)
+
+          # Public header + license.
+          shutil.copy2(Path("include") / "mog" / "mog_c.h", staging / "include" / "mog" / "mog_c.h")
+          if Path("LICENSE").is_file():
+              shutil.copy2("LICENSE", staging / "LICENSE")
+
+          # Zip, preserving symlinks (soname chain) and the executable bit.
+          archive = Path("dist") / f"{stem}.zip"
+          if archive.exists():
+              archive.unlink()
+          with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+              for path in sorted(staging.rglob("*")):
+                  arcname = str(path.relative_to(Path("dist")))
+                  if path.is_symlink():
+                      zi = zipfile.ZipInfo(arcname)
+                      zi.create_system = 3  # Unix
+                      zi.external_attr = (stat.S_IFLNK | 0o777) << 16
+                      zf.writestr(zi, os.readlink(path))
+                  elif path.is_dir():
+                      continue
+                  else:
+                      zi = zipfile.ZipInfo(arcname)
+                      zi.create_system = 3
+                      zi.external_attr = (path.stat().st_mode & 0xFFFF) << 16
+                      zi.compress_type = zipfile.ZIP_DEFLATED
+                      with open(path, "rb") as fh:
+                          zf.writestr(zi, fh.read())
           print(f"Created {archive}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"artifact_name={stem}\n")

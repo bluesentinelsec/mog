@@ -210,6 +210,21 @@ build the response with `mog_server_response_set_status` / `_set_header` /
 `mog_server_is_running`, `mog_server_stop`, `mog_server_wait`, and
 `mog_server_free`.
 
+## Prebuilt libraries
+
+Each [release](https://github.com/bluesentinelsec/mog/releases) bundles the
+shared library and the `mog/mog_c.h` header alongside the CLI, so you can use the
+C API without building from source. Per platform, the archive contains:
+
+- **Linux:** `lib/libmog_c.so` plus the versioned `libmog_c.so.MAJOR` and
+  `libmog_c.so.MAJOR.MINOR.PATCH` (the soname symlink chain is preserved).
+- **macOS:** `lib/libmog_c.dylib` and the versioned `libmog_c.MAJOR.dylib` /
+  `libmog_c.MAJOR.MINOR.PATCH.dylib`.
+- **Windows:** `mog_c.dll` next to the executable, plus the `lib/mog_c.lib`
+  import library.
+
+All archives include `include/mog/mog_c.h`.
+
 ## Building
 
 The shared library is built by default for top-level builds. Configure with
