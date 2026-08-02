@@ -26,6 +26,7 @@ The result is a client you can **static-link into a single binary** and run anyw
 - **Native where it counts.** `Auto` uses the OS stack (HTTP/2, system trust) when it is present.
 - **Graceful fallback.** When no native library is available, mog transparently uses embedded.
 - **Requests-style API**, a **curl-style CLI**, and a **C API** for C and FFI runtimes like Python ctypes.
+- **An embedded HTTP/S server** with routes, static file serving, and TLS, via `mog serve` and `mog::Server`.
 
 ## Quick start
 
@@ -59,6 +60,7 @@ if (r) {
   <div class="card"><h3>OS-native backends</h3><p>curl (dlopen), NSURLSession, and WinHTTP. Preferred automatically, at feature parity.</p></div>
   <div class="card"><h3>TLS done right</h3><p>Hybrid trust: system store first, then embedded roots, so HTTPS verifies everywhere.</p></div>
   <div class="card"><h3>Real features</h3><p>Redirects, cookies, gzip, streaming, multipart uploads, Basic/Bearer/Digest, mTLS, proxy.</p></div>
+  <div class="card"><h3>Embedded server</h3><p>Thread-safe HTTP/1.1 server with routes, static files, and TLS. <code>mog serve</code> or <code>mog::Server</code>.</p></div>
 </div>
 
 ## Backends at a glance

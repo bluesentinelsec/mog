@@ -56,12 +56,29 @@ if (r) {
 }
 ```
 
+**Server**
+
+```bash
+mog serve ./public --self-signed          # HTTPS dev server, like python -m http.server
+```
+
+```cpp
+#include <mog/server.hpp>
+
+mog::Server server;
+server.route(mog::Method::Get, "/hello",
+             [](const mog::ServerRequest&) { return mog::ServerResponse::Text(200, "hi"); });
+server.serve_files("/", "./public");
+server.start();   // non-blocking; server.wait() to block
+```
+
 ## Features
 
 - **Static and self-contained.** The embedded backend bundles HTTP/1.1, mbedTLS, and the Mozilla CA roots. It runs on scratch images.
 - **OS-native backends.** curl (`dlopen`), NSURLSession, and WinHTTP are preferred automatically, and they are at feature parity with the fallback.
 - **Hybrid TLS trust.** The system store is tried first, then the embedded roots. HTTPS verifies everywhere.
 - **Requests-style library, a curl-style CLI, and a C API.** The C binding (`mog/mog_c.h`, shipped as a shared library) makes mog callable from C and from FFI runtimes like Python ctypes.
+- **Embedded HTTP/S server.** A thread-safe HTTP/1.1 server with routes, static file serving, and TLS (including self-signed for local development), via `mog serve` and the `mog::Server` API.
 - Redirects, cookies (domain, path, and Secure), gzip and deflate, streaming download, multipart upload, Basic, Bearer, and Digest auth, mTLS, HTTP proxy, and JSON interop.
 
 ## Backends
@@ -83,6 +100,7 @@ Select one explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 - **[CLI Manual](docs/cli.md)**: every flag, exit codes, environment variables, and write-out tokens.
 - **[Guide](docs/guide.md)**: backends, TLS trust, request behavior, and static or scratch deployment.
 - **[Library](docs/library.md)**: the C++ API, covering `Options`, `Response`, `Session`, streaming, multipart, and auth.
+- **[Server](docs/server.md)**: the embedded HTTP/S server, `mog serve` and the `mog::Server` API.
 - **[C API](docs/c-api.md)**: the C binding for C programs and FFI runtimes such as Python ctypes.
 
 ## Build

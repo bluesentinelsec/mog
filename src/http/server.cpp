@@ -6,6 +6,7 @@
 
 #include "http/detail/socket.hpp"
 #include "http/detail/tcp_listener.hpp"
+#include "http/detail/tls_server.hpp"
 
 #include <algorithm>
 #include <array>
@@ -335,6 +336,40 @@ class TcpStream final : public ServerStream
 
   private:
     detail::TcpSocket sock_;
+};
+
+// Server-side TLS stream. Owns the accepted socket (stable address) and a TLS
+// session whose BIO points at that socket.
+class TlsStream final : public ServerStream
+{
+  public:
+    explicit TlsStream(detail::TcpSocket sock) : sock_(std::move(sock))
+    {
+    }
+
+    Result<void> Handshake(const detail::TlsServerContext &ctx, std::chrono::milliseconds timeout)
+    {
+        return session_.Handshake(sock_, ctx, timeout);
+    }
+
+    Result<std::size_t> Read(void *buf, std::size_t len, std::chrono::milliseconds timeout) override
+    {
+        return session_.Read(buf, len, timeout);
+    }
+
+    Result<void> Write(const void *buf, std::size_t len, std::chrono::milliseconds timeout) override
+    {
+        auto r = session_.Write(buf, len, timeout);
+        if (!r)
+        {
+            return Result<void>::Err(r.error());
+        }
+        return Result<void>::Ok();
+    }
+
+  private:
+    detail::TcpSocket sock_;
+    detail::TlsServerSession session_;
 };
 
 // --- Buffered reader over a ServerStream -----------------------------------
@@ -928,6 +963,41 @@ Result<ServerResponse> ServerResponse::File(const std::string &path)
 }
 
 // ---------------------------------------------------------------------------
+// TlsServerConfig
+// ---------------------------------------------------------------------------
+
+Result<TlsServerConfig> TlsServerConfig::FromFiles(const std::string &cert_path,
+                                                   const std::string &key_path,
+                                                   const std::string &key_password)
+{
+    auto ctx = detail::TlsServerContext::FromFiles(cert_path, key_path, key_password);
+    if (!ctx)
+    {
+        return Result<TlsServerConfig>::Err(ctx.error());
+    }
+    TlsServerConfig cfg;
+    cfg.enabled = true;
+    cfg.cert_pem = ctx->cert_pem();
+    cfg.key_pem = ctx->key_pem();
+    cfg.key_password = ctx->key_password();
+    return Result<TlsServerConfig>::Ok(std::move(cfg));
+}
+
+Result<TlsServerConfig> TlsServerConfig::SelfSigned(const std::string &common_name)
+{
+    auto ctx = detail::TlsServerContext::SelfSigned(common_name);
+    if (!ctx)
+    {
+        return Result<TlsServerConfig>::Err(ctx.error());
+    }
+    TlsServerConfig cfg;
+    cfg.enabled = true;
+    cfg.cert_pem = ctx->cert_pem();
+    cfg.key_pem = ctx->key_pem();
+    return Result<TlsServerConfig>::Ok(std::move(cfg));
+}
+
+// ---------------------------------------------------------------------------
 // Server::Impl
 // ---------------------------------------------------------------------------
 
@@ -955,6 +1025,7 @@ struct Server::Impl
     Handler default_handler;
 
     detail::TcpListener listener;
+    std::unique_ptr<detail::TlsServerContext> tls_context; // null for plain HTTP
     std::vector<std::thread> workers;
     std::thread accept_thread;
 
@@ -977,6 +1048,17 @@ struct Server::Impl
         if (running.load())
         {
             return Result<void>::Err(Error{ErrorCode::InvalidArgument, "server already running"});
+        }
+
+        if (options.tls.enabled)
+        {
+            auto ctx = detail::TlsServerContext::FromPem(options.tls.cert_pem, options.tls.key_pem,
+                                                         options.tls.key_password);
+            if (!ctx)
+            {
+                return Result<void>::Err(ctx.error());
+            }
+            tls_context = std::make_unique<detail::TlsServerContext>(std::move(*ctx));
         }
 
         auto bound = detail::TcpListener::Bind(options.bind_address, options.port, options.backlog);
@@ -1095,8 +1177,22 @@ struct Server::Impl
 
     void HandleConnection(detail::TcpSocket sock, const std::string &peer)
     {
-        TcpStream stream(std::move(sock));
-        ConnReader reader(stream, options);
+        std::unique_ptr<ServerStream> stream;
+        if (tls_context)
+        {
+            auto tls = std::make_unique<TlsStream>(std::move(sock));
+            auto hs = tls->Handshake(*tls_context, options.read_timeout);
+            if (!hs)
+            {
+                return; // handshake failed; drop the connection
+            }
+            stream = std::move(tls);
+        }
+        else
+        {
+            stream = std::make_unique<TcpStream>(std::move(sock));
+        }
+        ConnReader reader(*stream, options);
 
         int served = 0;
         while (served < options.max_keep_alive_requests && !stopping.load())
@@ -1118,7 +1214,7 @@ struct Server::Impl
                     code = 413;
                 }
                 ServerResponse err = ServerResponse::Text(code, ReasonPhrase(code));
-                WriteResponse(stream, err, options, false, false);
+                WriteResponse(*stream, err, options, false, false);
                 return;
             }
 
@@ -1139,7 +1235,7 @@ struct Server::Impl
             const bool head_request = req.method == Method::Head;
             ServerResponse resp = Dispatch(req);
 
-            if (!WriteResponse(stream, resp, options, keep_alive, head_request))
+            if (!WriteResponse(*stream, resp, options, keep_alive, head_request))
             {
                 return;
             }

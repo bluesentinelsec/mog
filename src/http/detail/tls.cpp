@@ -6,6 +6,7 @@
 #include "http/detail/tls.hpp"
 
 #include "http/detail/ca_store.hpp"
+#include "http/detail/mbedtls_threading.hpp"
 #include "mog/log.hpp"
 
 #include <array>
@@ -141,6 +142,7 @@ Result<void> TlsSession::Handshake(TcpSocket &socket, std::string_view hostname,
                                    const std::optional<TlsClientCert> &client_cert,
                                    std::chrono::milliseconds timeout)
 {
+    EnsureMbedtlsThreading();
     impl_->bio.socket = &socket;
     impl_->bio.timeout = timeout;
 

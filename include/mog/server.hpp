@@ -135,6 +135,34 @@ struct StaticOptions
 };
 
 /**
+ * @brief TLS (HTTPS) configuration for the server.
+ *
+ * Empty by default (plain HTTP). Build one with @ref FromFiles for a real
+ * certificate, or @ref SelfSigned for an ephemeral development certificate.
+ */
+struct TlsServerConfig
+{
+    bool enabled = false;
+    std::string cert_pem;     ///< Certificate chain, PEM.
+    std::string key_pem;      ///< Private key, PEM.
+    std::string key_password; ///< Passphrase for an encrypted key (empty = none).
+
+    /// Load a certificate chain and private key from PEM files.
+    [[nodiscard]] static Result<TlsServerConfig> FromFiles(const std::string &cert_path,
+                                                           const std::string &key_path,
+                                                           const std::string &key_password = {});
+
+    /**
+     * @brief Generate an ephemeral self-signed certificate (EC P-256).
+     *
+     * Suitable for local development and testing. Clients must skip verification
+     * (mog's client: @c verify_tls=false) since nothing else trusts it.
+     */
+    [[nodiscard]] static Result<TlsServerConfig> SelfSigned(
+        const std::string &common_name = "localhost");
+};
+
+/**
  * @brief Server configuration.
  */
 struct ServerOptions
@@ -164,6 +192,9 @@ struct ServerOptions
 
     /// Value sent in the Server response header.
     std::string server_name = "mog";
+
+    /// TLS configuration. When @c enabled, the server speaks HTTPS.
+    TlsServerConfig tls{};
 };
 
 /**

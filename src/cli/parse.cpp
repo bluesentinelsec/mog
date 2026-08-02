@@ -150,6 +150,26 @@ Result<Args> ParseArgv(const std::vector<std::string> &args)
 
 int RunArgv(int argc, char **argv, Streams streams)
 {
+    // `serve` runs the embedded server; it has its own arguments and does not
+    // fit the request pipeline (no URL), so dispatch it before the usual parse.
+    if (argc >= 2 && argv[1] != nullptr && std::string(argv[1]) == "serve")
+    {
+        auto parsed = ParseServeArgv(argc, argv);
+        if (!parsed)
+        {
+            if (parsed.error().message() == kServeHelpShown)
+            {
+                return 0; // --help was printed
+            }
+            if (streams.err != nullptr)
+            {
+                *streams.err << parsed.error().message() << '\n';
+            }
+            return 2;
+        }
+        return RunServe(*parsed, streams);
+    }
+
     for (int i = 1; i < argc; ++i)
     {
         const std::string a = argv[i] != nullptr ? argv[i] : "";

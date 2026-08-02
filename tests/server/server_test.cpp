@@ -403,6 +403,96 @@ TEST(ServerTest, RejectsOversizedBody)
     EXPECT_EQ(r->status_code, 413);
 }
 
+mog::Options EmbeddedInsecure()
+{
+    mog::Options opt;
+    opt.backend = mog::Backend::Embedded;
+    opt.verify_tls = false; // self-signed dev certificate
+    return opt;
+}
+
+TEST(ServerTest, HttpsWithSelfSignedCert)
+{
+    auto tls = mog::TlsServerConfig::SelfSigned("localhost");
+    ASSERT_TRUE(tls) << (tls ? "" : tls.error().to_string());
+
+    mog::ServerOptions opt{"127.0.0.1", 0};
+    opt.tls = *tls;
+    mog::Server server(opt);
+    server.route(mog::Method::Get, "/secure", [](const mog::ServerRequest &) {
+        return mog::ServerResponse::Text(200, "encrypted");
+    });
+    ASSERT_TRUE(server.start());
+
+    auto r = mog::get("https://127.0.0.1:" + std::to_string(server.port()) + "/secure",
+                      EmbeddedInsecure());
+    ASSERT_TRUE(r) << (r ? "" : r.error().to_string());
+    EXPECT_EQ(r->status_code, 200);
+    EXPECT_EQ(r->text(), "encrypted");
+}
+
+TEST(ServerTest, HttpsFromCertFiles)
+{
+    // Generate a self-signed cert/key, write them to files, then load via FromFiles.
+    auto generated = mog::TlsServerConfig::SelfSigned("localhost");
+    ASSERT_TRUE(generated);
+    TempDir dir;
+    dir.write("cert.pem", generated->cert_pem);
+    dir.write("key.pem", generated->key_pem);
+
+    auto tls = mog::TlsServerConfig::FromFiles((dir.path() / "cert.pem").string(),
+                                               (dir.path() / "key.pem").string());
+    ASSERT_TRUE(tls) << (tls ? "" : tls.error().to_string());
+
+    mog::ServerOptions opt{"127.0.0.1", 0};
+    opt.tls = *tls;
+    mog::Server server(opt);
+    server.route(mog::Method::Get, "/f", [](const mog::ServerRequest &) {
+        return mog::ServerResponse::Text(200, "from-files");
+    });
+    ASSERT_TRUE(server.start());
+
+    auto r =
+        mog::get("https://127.0.0.1:" + std::to_string(server.port()) + "/f", EmbeddedInsecure());
+    ASSERT_TRUE(r) << (r ? "" : r.error().to_string());
+    EXPECT_EQ(r->status_code, 200);
+    EXPECT_EQ(r->text(), "from-files");
+}
+
+TEST(ServerTest, HttpsHandlesConcurrentClients)
+{
+    auto tls = mog::TlsServerConfig::SelfSigned("localhost");
+    ASSERT_TRUE(tls);
+    mog::ServerOptions opt{"127.0.0.1", 0};
+    opt.tls = *tls;
+    mog::Server server(opt);
+    server.route(mog::Method::Get, "/n", [](const mog::ServerRequest &req) {
+        auto it = req.params.find("i");
+        return mog::ServerResponse::Text(200, it != req.params.end() ? it->second : "?");
+    });
+    ASSERT_TRUE(server.start());
+
+    constexpr int kThreads = 12;
+    std::vector<std::thread> threads;
+    std::atomic<int> ok{0};
+    const std::string base = "https://127.0.0.1:" + std::to_string(server.port());
+    for (int i = 0; i < kThreads; ++i)
+    {
+        threads.emplace_back([&, i] {
+            auto r = mog::get(base + "/n?i=" + std::to_string(i), EmbeddedInsecure());
+            if (r && r->status_code == 200 && r->text() == std::to_string(i))
+            {
+                ok.fetch_add(1);
+            }
+        });
+    }
+    for (auto &t : threads)
+    {
+        t.join();
+    }
+    EXPECT_EQ(ok.load(), kThreads);
+}
+
 TEST(ServerTest, StopAndRestart)
 {
     mog::Server server(mog::ServerOptions{"127.0.0.1", 0});
