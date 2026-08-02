@@ -198,7 +198,10 @@ jobs:
               otool -D "${real}"
               otool -D "${real}" | grep -q "@rpath/libmog_c.${major}.dylib" \
                 || { echo "install_name is not @rpath/libmog_c.${major}.dylib"; exit 1; }
-              nm -gU "${real}" | grep -qw _mog_server_new || { echo "mog_server_new not exported"; exit 1; }
+              # Check for defined external symbols (T). Avoid `nm -U`, whose meaning
+              # differs across nm variants (defined-only vs undefined-only).
+              nm -g "${real}" | grep -qE "T _mog_server_new$" || { echo "mog_server_new not exported"; exit 1; }
+              nm -g "${real}" | grep -qE "T _mog_get$" || { echo "mog_get not exported"; exit 1; }
               ;;
             Windows)
               dll="build/release/bin/mog_c.dll"
