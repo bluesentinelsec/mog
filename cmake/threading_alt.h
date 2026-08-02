@@ -11,6 +11,11 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+/* Prevent <windows.h> from defining min()/max() macros, which break
+ * std::numeric_limits<>::max() and std::min/std::max in C++ translation units. */
+#define NOMINMAX
+#endif
 #include <windows.h>
 
 typedef struct mbedtls_threading_mutex_t
