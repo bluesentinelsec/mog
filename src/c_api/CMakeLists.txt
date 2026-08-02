@@ -8,7 +8,7 @@
 # it enables are declared in the top-level CMakeLists, because PIC must be set
 # before the FetchContent dependencies are declared.
 if(MOG_BUILD_C_SHARED)
-  add_library(${PROJECT_NAME}_c SHARED mog_c.cpp)
+  add_library(${PROJECT_NAME}_c SHARED mog_c.cpp mog_c_server.cpp)
   add_library(${PROJECT_NAME}::c ALIAS ${PROJECT_NAME}_c)
 
   set_target_properties(${PROJECT_NAME}_c PROPERTIES
