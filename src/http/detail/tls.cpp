@@ -107,6 +107,10 @@ struct TlsSession::Impl
 
     Impl()
     {
+        // Register mbedTLS threading before initializing any context: with
+        // MBEDTLS_THREADING_ALT (Windows), mbedtls_entropy_init sets up a mutex
+        // that needs the callbacks registered, or entropy gathering fails.
+        EnsureMbedtlsThreading();
         mbedtls_entropy_init(&entropy);
         mbedtls_ctr_drbg_init(&ctr_drbg);
         mbedtls_ssl_init(&ssl);
@@ -142,7 +146,6 @@ Result<void> TlsSession::Handshake(TcpSocket &socket, std::string_view hostname,
                                    const std::optional<TlsClientCert> &client_cert,
                                    std::chrono::milliseconds timeout)
 {
-    EnsureMbedtlsThreading();
     impl_->bio.socket = &socket;
     impl_->bio.timeout = timeout;
 

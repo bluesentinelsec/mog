@@ -138,6 +138,7 @@ Result<TlsServerContext> TlsServerContext::FromFiles(const std::string &cert_pat
 
 Result<TlsServerContext> TlsServerContext::SelfSigned(const std::string &common_name)
 {
+    EnsureMbedtlsThreading(); // must precede any mbedtls_*_init (see Impl ctor)
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context ctr_drbg;
     mbedtls_pk_context key;
@@ -263,6 +264,9 @@ struct TlsServerSession::Impl
 
     Impl()
     {
+        // Register mbedTLS threading before any context init (see the client
+        // TlsSession::Impl for why: MBEDTLS_THREADING_ALT mutexes on Windows).
+        EnsureMbedtlsThreading();
         mbedtls_entropy_init(&entropy);
         mbedtls_ctr_drbg_init(&ctr_drbg);
         mbedtls_ssl_init(&ssl);
@@ -293,7 +297,6 @@ TlsServerSession &TlsServerSession::operator=(TlsServerSession &&) noexcept = de
 Result<void> TlsServerSession::Handshake(TcpSocket &socket, const TlsServerContext &context,
                                          std::chrono::milliseconds timeout)
 {
-    EnsureMbedtlsThreading();
     impl_->bio.socket = &socket;
     impl_->bio.timeout = timeout;
 
