@@ -33,6 +33,20 @@ foreach(_mog_mbedtls_tgt IN ITEMS mbedtls mbedx509 mbedcrypto everest p256m)
   cppboot_mark_system_includes(${_mog_mbedtls_tgt})
 endforeach()
 
+# Enable mbedTLS threading so its global state (notably the PSA subsystem used by
+# TLS 1.3) is mutex-protected. This is required for concurrent TLS handshakes
+# across the server's worker threads and concurrent client requests. The user
+# config is appended to mbedtls_config.h; PUBLIC so mbedx509/mbedtls and mog's
+# own translation units that include mbedTLS headers see the identical config.
+target_compile_definitions(mbedcrypto
+  PUBLIC MBEDTLS_USER_CONFIG_FILE="mog_mbedtls_user_config.h")
+target_include_directories(mbedcrypto PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
+if(NOT WIN32)
+  # POSIX pthread mutexes used by MBEDTLS_THREADING_PTHREAD.
+  find_package(Threads REQUIRED)
+  target_link_libraries(mbedcrypto PUBLIC Threads::Threads)
+endif()
+
 # ---------------------------------------------------------------------------
 # Content-Encoding gzip/deflate (static miniz — self-contained binary)
 # ---------------------------------------------------------------------------

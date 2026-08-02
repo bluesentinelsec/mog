@@ -18,7 +18,9 @@
 #include "mog/log.hpp"
 #include "mog/options.hpp"
 #include "mog/response.hpp"
+#include "mog/server.hpp"
 
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -164,7 +166,44 @@ bool ConfigureLogging(const Args &args);
  */
 [[nodiscard]] int Run(const Args &args, Streams streams = {});
 
+// --- `mog serve`: embedded static file server ---
+
+/**
+ * @brief Parsed arguments for the `serve` subcommand. Pure data.
+ */
+struct ServeArgs
+{
+    std::string directory = ".";
+    std::string bind_address = "127.0.0.1";
+    std::uint16_t port = 8000;
+    unsigned threads = 0; ///< 0 = hardware concurrency.
+    bool self_signed = false;
+    std::string tls_cert;
+    std::string tls_key;
+    bool no_listing = false;
+};
+
+/**
+ * @brief Map @ref ServeArgs into @ref ServerOptions (resolves TLS config).
+ * @return An error if TLS material is invalid or inconsistent.
+ */
+[[nodiscard]] Result<ServerOptions> BuildServeOptions(const ServeArgs &args);
+
+/// Sentinel returned by @ref ParseServeArgv when `--help` was printed (exit 0).
+extern const char *const kServeHelpShown;
+
 #if defined(MOG_HAS_CLI11) && MOG_HAS_CLI11
+/**
+ * @brief Parse `serve` subcommand argv (argv[1] == "serve") into @ref ServeArgs.
+ */
+[[nodiscard]] Result<ServeArgs> ParseServeArgv(int argc, char **argv);
+
+/**
+ * @brief Run the `serve` subcommand: start the server and block until interrupted.
+ * @return Process exit code.
+ */
+[[nodiscard]] int RunServe(const ServeArgs &args, Streams streams = {});
+
 /**
  * @brief Parse argv with CLI11 into Args (does not run the request).
  */

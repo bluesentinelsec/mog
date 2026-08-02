@@ -6,6 +6,7 @@
 #include "http/detail/tls.hpp"
 
 #include "http/detail/ca_store.hpp"
+#include "http/detail/mbedtls_threading.hpp"
 #include "mog/log.hpp"
 
 #include <array>
@@ -106,6 +107,10 @@ struct TlsSession::Impl
 
     Impl()
     {
+        // Register mbedTLS threading before initializing any context: with
+        // MBEDTLS_THREADING_ALT (Windows), mbedtls_entropy_init sets up a mutex
+        // that needs the callbacks registered, or entropy gathering fails.
+        EnsureMbedtlsThreading();
         mbedtls_entropy_init(&entropy);
         mbedtls_ctr_drbg_init(&ctr_drbg);
         mbedtls_ssl_init(&ssl);

@@ -8,6 +8,7 @@ target_sources(${PROJECT_NAME}_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/prepare.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/output.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/run.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/serve.cpp
 )
 
 if(MOG_WITH_CLI11)
