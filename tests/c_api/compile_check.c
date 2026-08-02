@@ -54,6 +54,27 @@ int main(void)
         return 1;
     }
 
+    /* Server C API: create, configure, and free without starting (no I/O). */
+    {
+        mog_server *server = mog_server_new();
+        if (server == NULL)
+        {
+            fprintf(stderr, "mog_server_new() failed\n");
+            return 1;
+        }
+        mog_server_set_bind_address(server, "127.0.0.1");
+        mog_server_set_port(server, 0);
+        mog_server_set_threads(server, 2);
+        mog_server_serve_files(server, "/", ".", 1);
+        if (mog_server_route(server, "GET", "/", NULL, NULL) == 0)
+        {
+            fprintf(stderr, "expected nonzero for NULL handler\n");
+            return 1;
+        }
+        mog_server_free(server);
+        mog_server_free(NULL);
+    }
+
     printf("mog C API ok, version %s\n", version);
     return 0;
 }

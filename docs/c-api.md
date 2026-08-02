@@ -12,8 +12,9 @@ self-contained shared library named `mog_c`. The C++ core, mbedTLS, miniz, and
 the platform HTTP backends are linked into that library, so it has no external
 runtime dependencies.
 
-The C API currently covers one-shot requests with the full set of common
-options. Sessions with a persistent cookie jar, multipart uploads, and streaming
+The C API covers both the **client** (one-shot requests with the full set of
+common options) and the **server** (see "Running a server" below). On the client
+side, sessions with a persistent cookie jar, multipart uploads, and streaming
 callbacks are planned for a later release.
 
 ## Design
@@ -134,6 +135,80 @@ no-op when the handle is NULL, and every string argument is copied.
 | `mog_response_header` | First value for a header name, case-insensitive |
 | `mog_response_elapsed_ms` / `mog_response_downloaded_bytes` | Timing and byte count |
 | `mog_response_backend` | Name of the backend that served the request |
+
+## Running a server
+
+The C API also exposes the embedded HTTP/S server, so a C or FFI program can
+serve files and handle requests. Build a server, register a static mount and/or
+route handlers, then start it (non-blocking).
+
+A route handler is a C callback invoked on a worker thread for each matching
+request. It receives a borrowed request view and a response builder that are
+valid only for the duration of the call. Because handlers run on worker threads,
+any shared state a handler touches must be synchronized by the handler.
+
+```c
+#include <mog/mog_c.h>
+#include <string.h>
+
+static void hello(const mog_server_request *req, mog_server_response *resp, void *user)
+{
+    (void)req; (void)user;
+    mog_server_response_set_status(resp, 200);
+    mog_server_response_set_header(resp, "Content-Type", "text/plain");
+    const char *body = "hello from a C handler";
+    mog_server_response_set_body(resp, body, strlen(body));
+}
+
+int main(void)
+{
+    mog_server *server = mog_server_new();
+    mog_server_set_port(server, 8080);
+    mog_server_route(server, "GET", "/hello", hello, NULL);
+    mog_server_serve_files(server, "/", "./public", 1);
+    /* mog_server_use_self_signed_tls(server); for HTTPS */
+
+    if (mog_server_start(server) != 0) {
+        fprintf(stderr, "%s\n", mog_server_last_error(server));
+        return 1;
+    }
+    mog_server_wait(server);      /* until mog_server_stop() from another thread */
+    mog_server_free(server);
+    return 0;
+}
+```
+
+From Python ctypes, wrap the handler with `CFUNCTYPE` (ctypes acquires the GIL
+for the callback) and keep the wrapper object alive for the server's lifetime:
+
+```python
+import ctypes
+lib = ctypes.CDLL("libmog_c.so")
+HANDLER = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+
+lib.mog_server_response_set_status.argtypes = [ctypes.c_void_p, ctypes.c_int]
+lib.mog_server_response_set_body.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+
+def handle(req, resp, user):
+    body = b"hello from python"
+    lib.mog_server_response_set_status(resp, 200)
+    lib.mog_server_response_set_body(resp, body, len(body))
+
+cb = HANDLER(handle)                       # keep a reference alive
+lib.mog_server_new.restype = ctypes.c_void_p
+server = lib.mog_server_new()
+lib.mog_server_route(server, b"GET", b"/hello", cb, None)
+lib.mog_server_start(server)
+```
+
+Configure the server with `mog_server_set_bind_address`, `mog_server_set_port`,
+and `mog_server_set_threads`. Enable HTTPS with `mog_server_use_self_signed_tls`
+(development) or `mog_server_use_tls_files`. Inside a handler, read the request
+with `mog_server_request_method` / `_path` / `_query` / `_header` / `_body`, and
+build the response with `mog_server_response_set_status` / `_set_header` /
+`_set_body`. Manage the lifecycle with `mog_server_start`, `mog_server_port`,
+`mog_server_is_running`, `mog_server_stop`, `mog_server_wait`, and
+`mog_server_free`.
 
 ## Building
 

@@ -3,8 +3,8 @@ if(NOT MOG_BUILD_C_SHARED)
   return()
 endif()
 
-# Deterministic C++ test that drives the C API against a local loopback server.
-add_executable(mog_c_api_test mog_c_test.cpp)
+# Deterministic C++ tests that drive the C client and server APIs.
+add_executable(mog_c_api_test mog_c_test.cpp mog_c_server_test.cpp)
 target_link_libraries(mog_c_api_test
   PRIVATE
     ${PROJECT_NAME}_c
@@ -42,6 +42,12 @@ if(Python3_Interpreter_FOUND AND NOT MOG_ENABLE_SANITIZERS)
   add_test(NAME mog_c_ctypes
     COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/ctypes_smoke.py
+      $<TARGET_FILE:${PROJECT_NAME}_c>
+  )
+  # FFI can also run a server whose handler is a Python (CFUNCTYPE) callback.
+  add_test(NAME mog_c_ctypes_server
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/ctypes_server.py
       $<TARGET_FILE:${PROJECT_NAME}_c>
   )
 elseif(MOG_ENABLE_SANITIZERS)
