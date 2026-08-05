@@ -21,11 +21,12 @@
 C++ has plenty of HTTP libraries, but shipping one usually drags in libcurl,
 OpenSSL, and a chain of transitive dependencies. mog does the opposite. It
 prefers the HTTP stack your operating system already ships. That means libcurl
-on Linux (loaded at runtime), NSURLSession on macOS, and WinHTTP on Windows. When
+on Linux (loaded at runtime), NSURLSession on macOS and iOS, and WinHTTP on Windows. When
 none of those is available, it falls back to a small embedded stack (HTTP/1.1 +
 mbedTLS) that is statically linked and present on native platforms. Emscripten
 uses the browser Fetch API and the browser's TLS implementation. Android uses
-the embedded stack through a multi-ABI Prefab AAR.
+the embedded stack through a multi-ABI Prefab AAR, and iOS releases ship a
+device-and-Simulator XCFramework.
 
 You can static-link mog into a single binary and run it anywhere. That includes a
 `FROM scratch` container with nothing on disk but the executable. HTTPS still
@@ -83,19 +84,21 @@ server.start();   // non-blocking; server.wait() to block
 - **Native embedded HTTP/S server.** A thread-safe HTTP/1.1 server with routes, static file serving, and TLS (including self-signed for local development), via `mog serve` and the `mog::Server` API.
 - **Browser WebAssembly.** Emscripten builds use browser Fetch with the same synchronous C++ request API; browser tests run in headless Chrome in CI.
 - **Android NDK.** Releases include a Prefab AAR for `armeabi-v7a`, `arm64-v8a`, and `x86_64`, tested end to end on an emulator.
+- **iOS.** Releases include a static XCFramework for arm64 devices and arm64/x86_64 Simulator, tested through a real consumer app.
 - **Full native request controls.** Redirects, cookie jars, gzip and deflate, streaming downloads, multipart uploads, Basic/Bearer/Digest auth, mTLS, HTTP proxy, and JSON interop. Browser-supported behavior is listed in the [Web / Emscripten guide](docs/web.md).
 
 ## Backends
 
 On desktop native platforms, `Auto` (the default) prefers the platform-native
 backend and falls back to embedded. It chooses **per request**, so a native call
-never silently loses a feature. Android `Auto` selects embedded and Emscripten
-`Auto` selects browser Fetch. Select one
+never silently loses a feature. iOS `Auto` selects NSURLSession, Android `Auto`
+selects embedded, and Emscripten `Auto` selects browser Fetch. Select one
 explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 
 | Backend | Selector | Role |
 |---------|----------|------|
 | macOS NSURLSession | `native` | Auto default on macOS |
+| iOS NSURLSession | `native` | Auto default on iPhone and iPad |
 | libcurl (runtime `dlopen`) | `curl` | Auto default on Linux |
 | Windows WinHTTP | `winhttp` | Auto default on Windows |
 | Android embedded | `embedded` | Auto default on Android |
@@ -113,6 +116,8 @@ explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 - **[Web build and CI](docs/web-maintainers.md)**: maintainer builds, browser tests, CI coverage, and release packaging.
 - **[Android](docs/android.md)**: Prefab AAR integration, HTTPS behavior, supported ABIs, and platform constraints.
 - **[Android build and CI](docs/android-maintainers.md)**: maintainer builds, emulator tests, CI coverage, and release packaging.
+- **[iOS](docs/ios.md)**: XCFramework integration, NSURLSession/HTTPS behavior, device and Simulator slices, and platform constraints.
+- **[iOS build and CI](docs/ios-maintainers.md)**: maintainer builds, Simulator tests, CI coverage, and release packaging.
 - **[C API](docs/c-api.md)**: the C binding for C programs and FFI runtimes such as Python ctypes.
 
 ## Build
@@ -125,12 +130,16 @@ make web-test   # Emscripten build + headless-browser tests (emsdk required)
 make web-package
 make android-test # Prefab AAR + connected Android emulator/device tests
 make android-package
+make ios-test     # XCFramework + iOS Simulator package tests (Xcode required)
+make ios-package
 ```
 
 See the [Web build and CI guide](docs/web-maintainers.md) for prerequisites,
 direct Emscripten commands, test coverage, and package contents.
 See the [Android build and CI guide](docs/android-maintainers.md) for the pinned
 Gradle/NDK toolchain, emulator tests, and Prefab AAR packaging.
+See the [iOS build and CI guide](docs/ios-maintainers.md) for Xcode builds,
+Simulator tests, and XCFramework packaging.
 
 Windows uses `build.bat` or `build.bat test`. To produce a fully static Linux
 binary for scratch or minimal images, run

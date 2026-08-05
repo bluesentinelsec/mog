@@ -168,7 +168,7 @@ void EnsureDefaultTransportsRegistered()
     auto &native = reg.slots[SlotIndex(Backend::Native)];
     if (!native)
     {
-        native = MakeNativeTransport(); // platform-native (e.g. NSURLSession on macOS)
+        native = MakeNativeTransport(); // platform-native (e.g. Apple NSURLSession)
         if (!native)
         {
             native = std::make_unique<UnimplementedTransport>("native");

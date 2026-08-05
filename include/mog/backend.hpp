@@ -16,15 +16,15 @@ namespace mog
  *
  * @c Auto resolves using an environment override (if any), then the platform
  * default. Android uses the embedded stack, browser WebAssembly uses Fetch,
- * and desktop platforms prefer their native transport with embedded fallback.
+ * and desktop/iOS platforms prefer their native transport with embedded fallback.
  */
 enum class Backend
 {
     Auto = 0,
     Embedded, ///< Built-in HTTP/1.1 + mbedTLS (Android default and native fallback).
-    Curl,     ///< Runtime libcurl via dlopen (planned).
-    WinHttp,  ///< Windows WinHTTP (planned).
-    Native,   ///< OS-native (e.g. NSURLSession on macOS) (planned).
+    Curl,     ///< Runtime libcurl via dlopen on supported desktop platforms.
+    WinHttp,  ///< Windows WinHTTP.
+    Native,   ///< Apple NSURLSession (macOS and iOS).
     Web,      ///< Browser Fetch API (Emscripten only).
 };
 

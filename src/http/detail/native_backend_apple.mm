@@ -1,16 +1,13 @@
 /**
  * @file native_backend_apple.mm
- * @brief macOS native backend over NSURLSession (Backend::Native).
+ * @brief Apple native backend over NSURLSession (Backend::Native).
  *
  * Reuses PrepareRequest so json/form/multipart/auth/cookie encoding matches the
  * embedded backend. NSURLSession handles TLS, redirects, and transparent gzip.
  *
- * This backend is Available (explicitly selectable via Backend::Native /
- * MOG_BACKEND=native / --backend native, and covered by the cross-backend
- * conformance suite) but is NOT yet Auto-preferred: several embedded features
- * (streaming response_writer, keep-alive pooling semantics, max_response_bytes
- * enforcement, Digest, mTLS/custom CA) are not yet wired here, so Auto keeps
- * using embedded until this reaches parity.
+ * This backend is available and Auto-preferred on Apple platforms. Requests
+ * needing a custom PEM CA bundle, PEM client certificate, or explicit HTTP
+ * proxy are routed to the embedded backend, which implements those features.
  *
  * Known deltas vs embedded (documented): multiple same-name response headers
  * (e.g. several Set-Cookie) are comma-folded by NSURLSession's allHeaderFields;
@@ -318,11 +315,12 @@ class AppleNativeTransport final : public Transport
     }
 
     // NSURLSession streams, enforces max_response_bytes, and does Digest. PEM CA
-    // bundle / PEM client cert are an intentional delta (it uses the OS trust
-    // store/keychain), so Auto routes those to a PEM-capable backend.
+    // bundles, PEM client certificates, and explicit proxies are intentional
+    // deltas, so Auto routes those to the embedded backend.
     [[nodiscard]] bool Supports(const Options &options) const noexcept override
     {
-        if (options.ca_bundle.has_value() || options.client_cert.has_value())
+        if (options.ca_bundle.has_value() || options.client_cert.has_value() ||
+            options.proxy.has_value())
         {
             return false;
         }
@@ -332,6 +330,14 @@ class AppleNativeTransport final : public Transport
     [[nodiscard]] Result<Response> Execute(Method method, std::string_view url,
                                            const Options &options) override
     {
+        if (!Supports(options))
+        {
+            return Result<Response>::Err(
+                Error{ErrorCode::UnsupportedBackend,
+                      "the Apple native backend does not support PEM CA bundles, PEM client "
+                      "certificates, or explicit proxies; use auto or embedded"});
+        }
+
         @autoreleasepool
         {
             const auto started = std::chrono::steady_clock::now();

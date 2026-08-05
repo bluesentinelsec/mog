@@ -15,13 +15,14 @@ mog exposes one API over several HTTP stacks. Selection follows this precedence:
 1. **Explicit.** `Options::backend` or the CLI `--backend` is honored exactly.
 2. **Environment.** `MOG_BACKEND` is used next.
 3. **`Auto`** (the default). It selects browser Fetch on Emscripten, embedded on
-   Android, otherwise it prefers the platform-native backend and falls back to
-   **embedded**.
+   Android, NSURLSession on iOS, otherwise it prefers the platform-native
+   backend and falls back to **embedded**.
 
 | Backend | Selector | Role |
 |---------|----------|------|
 | macOS NSURLSession | `native` | Auto default on macOS |
-| libcurl (Linux & macOS, runtime `dlopen`) | `curl` | Auto default on Linux |
+| iOS NSURLSession | `native` | Auto default on iPhone and iPad |
+| libcurl (Linux and macOS, runtime `dlopen`) | `curl` | Auto default on Linux |
 | Windows WinHTTP | `winhttp` | Auto default on Windows |
 | Android embedded | `embedded` | Auto default on Android |
 | Browser Fetch (Emscripten) | `web` | Auto default in browser WebAssembly |
@@ -41,9 +42,10 @@ silently loses a feature. The native backends are at parity for streaming,
 configuration.
 
 A PEM CA bundle (`--cacert`) or a PEM client certificate (`--cert`) with
-NSURLSession or WinHTTP falls back to a PEM-capable backend. Both curl and
-embedded honor these. This is by design. Native backends verify against the OS
-trust store, so supplying PEM material means you want file-based trust.
+NSURLSession or WinHTTP falls back to a PEM-capable backend. An explicit proxy
+also falls back from NSURLSession to embedded. Both curl and embedded honor
+these options. This is by design. Native backends verify against the OS trust
+store, so supplying PEM material means you want file-based trust.
 
 Choosing a backend explicitly disables the fallback. That request uses exactly
 the named backend.
@@ -56,6 +58,10 @@ contract.
 Android uses the embedded socket/mbedTLS backend directly and does not attempt
 to load a system libcurl. See the [Android guide](android.html) for the Prefab
 AAR, supported ABIs, TLS trust behavior, and application integration.
+
+iOS uses the packaged NSURLSession backend by default and retains the embedded
+stack for custom PEM trust, mTLS, and the server. See the [iOS guide](ios.html)
+for XCFramework integration, ATS behavior, and application lifecycle limits.
 
 ## TLS trust
 
@@ -75,6 +81,10 @@ Native backends use the OS trust store directly.
 On Android, the embedded Mozilla bundle is the portable default because mog's
 raw native mbedTLS transport is independent of Android Network Security
 Configuration. Supply `Options::ca_bundle` for private or app-specific roots.
+
+On iOS, NSURLSession uses the system trust store. A request with a custom PEM
+CA, PEM client certificate, or explicit proxy falls back to the packaged
+embedded backend when `Auto` is selected.
 
 ## Request behavior
 
