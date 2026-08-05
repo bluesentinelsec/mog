@@ -68,13 +68,19 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(Sanitizers)
 
-# Preferred third-party libraries (FetchContent). On for top-level apps; off when
-# embedded so consumers do not pull CLI/JSON/logging unless they opt in.
-option(MOG_WITH_CLI11 "CLI argument parsing via CLI11" ${MOG_IS_TOP_LEVEL})
-option(MOG_WITH_JSON "JSON parsing via nlohmann/json" ${MOG_IS_TOP_LEVEL})
-option(MOG_WITH_SPDLOG "Console/file logging via spdlog" ${MOG_IS_TOP_LEVEL})
+# Preferred third-party libraries (FetchContent). On for top-level native apps;
+# off when embedded and for the Android Prefab package, whose public contract is
+# the dependency-free core C++ API.
+set(MOG_DEFAULT_WITH_OPTIONAL_DEPS ${MOG_IS_TOP_LEVEL})
+if(ANDROID)
+  set(MOG_DEFAULT_WITH_OPTIONAL_DEPS OFF)
+endif()
+option(MOG_WITH_CLI11 "CLI argument parsing via CLI11" ${MOG_DEFAULT_WITH_OPTIONAL_DEPS})
+option(MOG_WITH_JSON "JSON parsing via nlohmann/json" ${MOG_DEFAULT_WITH_OPTIONAL_DEPS})
+option(MOG_WITH_SPDLOG "Console/file logging via spdlog" ${MOG_DEFAULT_WITH_OPTIONAL_DEPS})
 
 set(MOG_DEFAULT_BUILD_APP ${MOG_IS_TOP_LEVEL})
+set(MOG_DEFAULT_BUILD_TESTS ${MOG_IS_TOP_LEVEL})
 set(MOG_DEFAULT_BUILD_BENCHMARKS ${MOG_IS_TOP_LEVEL})
 set(MOG_DEFAULT_BUILD_C_SHARED ${MOG_IS_TOP_LEVEL})
 if(EMSCRIPTEN)
@@ -85,10 +91,18 @@ if(EMSCRIPTEN)
   set(MOG_DEFAULT_BUILD_BENCHMARKS OFF)
   set(MOG_DEFAULT_BUILD_C_SHARED OFF)
 endif()
+if(ANDROID)
+  # Android consumers receive the C++ library as a Prefab AAR. Repository tests
+  # are hosted by the Gradle test application and run on an emulator/device.
+  set(MOG_DEFAULT_BUILD_APP OFF)
+  set(MOG_DEFAULT_BUILD_TESTS OFF)
+  set(MOG_DEFAULT_BUILD_BENCHMARKS OFF)
+  set(MOG_DEFAULT_BUILD_C_SHARED OFF)
+endif()
 
 # When embedded, skip app/tests/benchmarks unless the consumer opts in.
 option(MOG_BUILD_APP "Build the demo application executable" ${MOG_DEFAULT_BUILD_APP})
-option(MOG_BUILD_TESTS "Build unit tests" ${MOG_IS_TOP_LEVEL})
+option(MOG_BUILD_TESTS "Build unit tests" ${MOG_DEFAULT_BUILD_TESTS})
 option(MOG_BUILD_BENCHMARKS "Build benchmarks" ${MOG_DEFAULT_BUILD_BENCHMARKS})
 # ASan + UBSan for project targets (intended for Linux GCC/Clang; see make sanitizer).
 option(MOG_ENABLE_SANITIZERS "Enable Address+UBSan on project targets" OFF)
@@ -103,6 +117,22 @@ if(EMSCRIPTEN AND (MOG_BUILD_APP OR MOG_BUILD_C_SHARED OR MOG_BUILD_BENCHMARKS))
   )
 endif()
 
+if(ANDROID AND (MOG_BUILD_APP OR MOG_BUILD_TESTS OR MOG_BUILD_C_SHARED OR
+                MOG_BUILD_BENCHMARKS))
+  message(FATAL_ERROR
+    "Android builds provide the mog Prefab library; set MOG_BUILD_APP, "
+    "MOG_BUILD_TESTS, MOG_BUILD_C_SHARED, and MOG_BUILD_BENCHMARKS to OFF. "
+    "Use the android Gradle project to build and run device tests."
+  )
+endif()
+
+if(ANDROID AND (MOG_WITH_CLI11 OR MOG_WITH_JSON OR MOG_WITH_SPDLOG))
+  message(FATAL_ERROR
+    "The Android Prefab AAR contains the dependency-free core API; set "
+    "MOG_WITH_CLI11, MOG_WITH_JSON, and MOG_WITH_SPDLOG to OFF"
+  )
+endif()
+
 # Building a shared object from the otherwise-static core requires
 # position-independent code throughout, including the FetchContent dependencies
 # (mbedTLS, miniz). Enable PIC globally before those targets are declared. macOS
@@ -110,7 +140,7 @@ endif()
 # linking non-PIC static archives into a .so fails ("failed to set dynamic
 # section sizes"). The static musl scratch build sets MOG_BUILD_C_SHARED=OFF, so
 # it is unaffected.
-if(MOG_BUILD_C_SHARED)
+if(MOG_BUILD_C_SHARED OR ANDROID)
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 

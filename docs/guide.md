@@ -14,14 +14,16 @@ mog exposes one API over several HTTP stacks. Selection follows this precedence:
 
 1. **Explicit.** `Options::backend` or the CLI `--backend` is honored exactly.
 2. **Environment.** `MOG_BACKEND` is used next.
-3. **`Auto`** (the default). It selects browser Fetch on Emscripten, otherwise it
-   prefers the platform-native backend and falls back to **embedded**.
+3. **`Auto`** (the default). It selects browser Fetch on Emscripten, embedded on
+   Android, otherwise it prefers the platform-native backend and falls back to
+   **embedded**.
 
 | Backend | Selector | Role |
 |---------|----------|------|
 | macOS NSURLSession | `native` | Auto default on macOS |
 | libcurl (Linux & macOS, runtime `dlopen`) | `curl` | Auto default on Linux |
 | Windows WinHTTP | `winhttp` | Auto default on Windows |
+| Android embedded | `embedded` | Auto default on Android |
 | Browser Fetch (Emscripten) | `web` | Auto default in browser WebAssembly |
 | Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Always-present native fallback |
 
@@ -51,6 +53,10 @@ therefore governed by CORS, browser TLS/cookie policy, and browser-managed
 redirects and content decoding. See the [Web / Emscripten guide](web.html) for the exact
 contract.
 
+Android uses the embedded socket/mbedTLS backend directly and does not attempt
+to load a system libcurl. See the [Android guide](android.html) for the Prefab
+AAR, supported ABIs, TLS trust behavior, and application integration.
+
 ## TLS trust
 
 When verification is on (the default), the embedded backend resolves CA roots in
@@ -65,6 +71,10 @@ this order, and the first success wins:
 This is why HTTPS verifies even on a minimal image with no CA files: the Mozilla
 roots ship inside the binary. Set `MOG_NO_EMBEDDED_CA=1` to forbid that fallback.
 Native backends use the OS trust store directly.
+
+On Android, the embedded Mozilla bundle is the portable default because mog's
+raw native mbedTLS transport is independent of Android Network Security
+Configuration. Supply `Options::ca_bundle` for private or app-specific roots.
 
 ## Request behavior
 

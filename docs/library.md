@@ -125,4 +125,5 @@ make release
 The library target is `mog_lib` (static). See the
 [README](https://github.com/bluesentinelsec/mog) for CMake / FetchContent usage
 and the [Guide](guide.html) for backend and TLS behavior. Emscripten callers
-should start with [Web / Emscripten](web.html).
+should start with [Web / Emscripten](web.html); Android callers should use the
+[Prefab AAR guide](android.html).

@@ -1,0 +1,97 @@
+plugins {
+    id "com.android.library"
+}
+
+def repositoryRoot = rootProject.projectDir.parentFile
+def prefabHeaders = file("${buildDir}/generated/prefab-headers")
+def mogVersion = new File(repositoryRoot, "VERSION").readLines()[0]
+        .replaceFirst(/^[vV]/, "")
+        .replaceFirst(/[ \t]*#.*$/, "")
+        .trim()
+
+version = mogVersion
+
+android {
+    namespace "com.bluesentinelsec.mog"
+    compileSdk 35
+    ndkVersion "27.2.12479018"
+
+    defaultConfig {
+        minSdk 21
+
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared",
+                          "-DMOG_BUILD_APP=OFF",
+                          "-DMOG_BUILD_TESTS=OFF",
+                          "-DMOG_BUILD_BENCHMARKS=OFF",
+                          "-DMOG_BUILD_C_SHARED=OFF",
+                          "-DMOG_WITH_CLI11=OFF",
+                          "-DMOG_WITH_JSON=OFF",
+                          "-DMOG_WITH_SPDLOG=OFF"
+                targets "mog"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    buildFeatures {
+        prefabPublishing true
+    }
+
+    prefab {
+        mog {
+            headers prefabHeaders.absolutePath
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path repositoryRoot.toPath().resolve("CMakeLists.txt").toFile()
+            version "3.22.1"
+        }
+    }
+}
+
+tasks.register("preparePrefabHeaders") {
+    inputs.dir(new File(repositoryRoot, "include"))
+    inputs.file(new File(repositoryRoot, "VERSION"))
+    inputs.file(new File(repositoryRoot, "cmake/version.hpp.in"))
+    outputs.dir(prefabHeaders)
+
+    doLast {
+        delete(prefabHeaders)
+        copy {
+            from new File(repositoryRoot, "include")
+            into prefabHeaders
+            include "**/*.h", "**/*.hpp"
+        }
+
+        def components = mogVersion.tokenize(".-")
+        if (components.size() < 3 || !components.take(3).every { it ==~ /[0-9]+/ }) {
+            throw new GradleException("VERSION must begin with numeric major.minor.patch")
+        }
+
+        def versionHeader = new File(repositoryRoot, "cmake/version.hpp.in").text
+                .replace("@PROJECT_NAMESPACE@", "mog")
+                .replace("@PROJECT_VERSION_MAJOR@", components[0])
+                .replace("@PROJECT_VERSION_MINOR@", components[1])
+                .replace("@PROJECT_VERSION_PATCH@", components[2])
+        def output = new File(prefabHeaders, "mog/version.hpp")
+        output.parentFile.mkdirs()
+        output.text = versionHeader
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("preparePrefabHeaders")
+}

@@ -194,6 +194,8 @@ Backend PreferredNativeBackend() noexcept
     return Backend::Native;
 #elif defined(_WIN32)
     return Backend::WinHttp;
+#elif defined(__ANDROID__)
+    return Backend::Embedded;
 #elif defined(__linux__)
     return Backend::Curl;
 #else

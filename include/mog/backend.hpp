@@ -14,14 +14,14 @@ namespace mog
 /**
  * @brief Available HTTP transport backends.
  *
- * @c Auto resolves using environment override (if any) then the default
- * embedded stack. Browser WebAssembly uses the browser Fetch API instead of
- * raw sockets.
+ * @c Auto resolves using an environment override (if any), then the platform
+ * default. Android uses the embedded stack, browser WebAssembly uses Fetch,
+ * and desktop platforms prefer their native transport with embedded fallback.
  */
 enum class Backend
 {
     Auto = 0,
-    Embedded, ///< Built-in HTTP/1.1 + mbedTLS (default, always available).
+    Embedded, ///< Built-in HTTP/1.1 + mbedTLS (Android default and native fallback).
     Curl,     ///< Runtime libcurl via dlopen (planned).
     WinHttp,  ///< Windows WinHTTP (planned).
     Native,   ///< OS-native (e.g. NSURLSession on macOS) (planned).
