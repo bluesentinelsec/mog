@@ -17,6 +17,7 @@ for md in docs/*.md; do
     --from gfm \
     --to html5 \
     --template web/template.html \
+    --lua-filter web/bootstrap.lua \
     --css style.css \
     --output "$OUT/$name.html"
   echo "  built $OUT/$name.html"
