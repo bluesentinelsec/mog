@@ -6,6 +6,10 @@ add_subdirectory(http)
 add_subdirectory(cli)
 add_subdirectory(c_api)
 
+if(ANDROID)
+  add_subdirectory(android)
+endif()
+
 # Painfully obvious program entrypoint: src/main.cpp
 # Skipped when this project is consumed via add_subdirectory / FetchContent
 # unless MOG_BUILD_APP=ON.
@@ -28,4 +32,3 @@ if(MOG_BUILD_APP)
   endif()
   cppboot_set_project_warnings(${PROJECT_NAME}_app)
 endif()
-

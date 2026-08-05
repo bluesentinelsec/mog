@@ -1,7 +1,7 @@
 # Idiomatic GNU Make wrapper around the CMake build.
 # Prefer these targets for day-to-day work.
 
-.PHONY: all debug release test bench sanitizer web web-test web-package fmt doc clean reconfigure-debug reconfigure-release \
+.PHONY: all debug release test bench sanitizer web web-test web-package android android-test android-package fmt doc clean reconfigure-debug reconfigure-release \
         configure-debug configure-release link_compile_commands copy_compile_commands help tags
 
 PROJECT_NAME := mog
@@ -44,6 +44,9 @@ help:
 	@echo "  make web           - Emscripten Release library + browser tests"
 	@echo "  make web-test      - run Emscripten tests in headless Chrome via emrun"
 	@echo "  make web-package   - install and zip the Emscripten consumer package"
+	@echo "  make android       - build Debug + Release Prefab AARs and test APKs"
+	@echo "  make android-test  - run Release tests on a connected emulator/device"
+	@echo "  make android-package - copy the versioned Release AAR under build/android"
 	@echo "  make fmt           - run clang-format on all sources"
 	@echo "  make doc           - generate Doxygen HTML under docs/html"
 	@echo "  make tags           - regenerate ctags index (Universal Ctags)"
@@ -150,6 +153,23 @@ web-package: web
 	  (cd "$$package_root" && cmake -E tar cf "$$stem.zip" --format=zip "$$stem"); \
 	  echo "wrote $$package_root/$$stem.zip"
 
+android:
+	./android/gradlew -p android --no-daemon :mog:assembleDebug
+	./android/gradlew -p android --no-daemon :test-app:assembleDebug
+	./android/gradlew -p android --no-daemon :mog:assembleRelease
+	./android/gradlew -p android --no-daemon :test-app:assembleRelease
+
+android-test: android
+	bash scripts/run_android_tests.sh
+
+android-package:
+	./android/gradlew -p android --no-daemon :mog:assembleRelease
+	@version=$$(tr -d '[:space:]' < VERSION | sed 's/^v//;s/#.*//'); \
+	  mkdir -p build/android; \
+	  output="build/android/mog-android-release-$$version.aar"; \
+	  cp android/mog/build/outputs/aar/mog-release.aar "$$output"; \
+	  echo "wrote $$output"
+
 fmt:
 	@command -v clang-format >/dev/null 2>&1 || { echo "clang-format not found"; exit 1; }
 	@files=$$(find src tests benchmarks include -type f \
@@ -168,7 +188,8 @@ tags:
 	@echo "wrote tags"
 
 clean:
-	rm -rf build docs/html docs/latex docs/xml compile_commands.json $(PROJECT_NAME)$(EXE_EXT) tags TAGS
+	rm -rf build docs/html docs/latex docs/xml compile_commands.json $(PROJECT_NAME)$(EXE_EXT) tags TAGS \
+	  android/.gradle android/mog/build android/mog/.cxx android/test-app/build android/test-app/.cxx
 
 link_compile_commands:
 	@if [ -f "$(BUILD_DIR)/compile_commands.json" ]; then \
