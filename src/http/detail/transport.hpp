@@ -2,7 +2,7 @@
  * @file transport.hpp
  * @brief HTTP transport backend interface (Open/Closed for new stacks).
  *
- * New backends (curl, WinHTTP, NSURLSession) implement @ref Transport and
+ * New backends (curl, WinHTTP, NSURLSession, browser Fetch) implement @ref Transport and
  * register themselves; @c mog::request dispatches via the registry without
  * growing a central switch for each addition.
  */
@@ -59,8 +59,8 @@ class Transport
      * Under @c Auto, a request needing a feature the preferred native backend does
      * not implement (streaming @c response_writer, Digest auth, and for the
      * NSURLSession/WinHTTP backends a PEM CA bundle or client certificate)
-     * transparently falls back to embedded. Embedded supports everything. This is
-     * ignored when a backend is selected explicitly.
+     * transparently falls back to embedded on native platforms. This is ignored
+     * when a backend is selected explicitly.
      */
     [[nodiscard]] virtual bool Supports(const Options & /*options*/) const noexcept
     {
@@ -93,8 +93,9 @@ void RegisterTransport(Backend id, std::unique_ptr<Transport> transport);
 void EnsureDefaultTransportsRegistered();
 
 /**
- * @brief The platform's preferred native backend id (Native on macOS, WinHttp on
- *        Windows, Curl on Linux, else Embedded) — regardless of availability.
+ * @brief The platform's preferred backend id (Web on Emscripten, Native on
+ *        macOS, WinHttp on Windows, Curl on Linux, else Embedded) — regardless
+ *        of availability.
  */
 [[nodiscard]] Backend PreferredNativeBackend() noexcept;
 
@@ -106,8 +107,8 @@ void EnsureDefaultTransportsRegistered();
 /**
  * @brief Concrete backend that @c Auto should use (availability only).
  *
- * Prefers the platform-native backend (Native on macOS, WinHttp on Windows,
- * Curl on Linux) when it is available and auto-preferred; otherwise @c Embedded.
+ * Prefers the platform backend when it is available and auto-preferred;
+ * otherwise @c Embedded.
  * Does not consider per-request capability — see @ref SelectBackend.
  */
 [[nodiscard]] Backend ResolveAutoBackend();
@@ -116,7 +117,7 @@ void EnsureDefaultTransportsRegistered();
  * @brief Choose the concrete backend for a specific request.
  *
  * Precedence: an explicit @c Options::backend (non-Auto) or @c MOG_BACKEND is
- * honored exactly. Otherwise (Auto) the platform-native backend is used when it
+ * honored exactly. Otherwise (Auto) the platform backend is used when it
  * is available, auto-preferred, and @ref Transport::Supports the request; if any
  * of those fail, falls back to @c Embedded.
  */

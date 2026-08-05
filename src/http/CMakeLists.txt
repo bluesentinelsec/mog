@@ -1,4 +1,4 @@
-# HTTP client library component (embedded backend default).
+# HTTP client library component.
 target_sources(${PROJECT_NAME}_lib
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/error.cpp
@@ -6,33 +6,46 @@ target_sources(${PROJECT_NAME}_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/options.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/response.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/http.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/server.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/log.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/url.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/socket.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/tcp_listener.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls_server.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/mbedtls_threading.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/prepare.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/content_encoding.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/ca_store.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/mozilla_ca_bundle.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/connection_pool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/cookie_jar.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/digest_auth.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/multipart.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/detail/embedded_backend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/detail/registry.cpp
 )
+
+if(EMSCRIPTEN)
+  target_sources(${PROJECT_NAME}_lib
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/server_web.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/web_backend.cpp
+  )
+else()
+  target_sources(${PROJECT_NAME}_lib
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/server.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/socket.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/tcp_listener.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/tls_server.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/mbedtls_threading.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/content_encoding.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/digest_auth.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/ca_store.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/mozilla_ca_bundle.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/connection_pool.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/embedded_backend.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/detail/web_backend_stub.cpp
+  )
+endif()
 
 # libcurl backend: loaded at runtime via dlopen (never link-time). Windows uses
 # WinHTTP instead. Sanitizer builds also use the stub: ASan/UBSan cannot reliably
 # instrument the dlopen'd, uninstrumented system libcurl (false positives at the
 # boundary), so curl is validated by the normal Debug/Release CI jobs instead.
-if(WIN32 OR MOG_ENABLE_SANITIZERS)
+if(EMSCRIPTEN OR WIN32 OR MOG_ENABLE_SANITIZERS)
   target_sources(${PROJECT_NAME}_lib
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/curl_backend_stub.cpp)
 else()
@@ -71,13 +84,15 @@ target_include_directories(${PROJECT_NAME}_lib
 # mbedTLS is required for the embedded HTTPS backend.
 # Wrap in BUILD_INTERFACE so install(EXPORT) does not require mbedTLS targets
 # (they are statically linked into mog_lib for consumers of the archive).
-target_link_libraries(${PROJECT_NAME}_lib
-  PRIVATE
-    $<BUILD_INTERFACE:mbedtls>
-    $<BUILD_INTERFACE:mbedx509>
-    $<BUILD_INTERFACE:mbedcrypto>
-    $<BUILD_INTERFACE:miniz>
-)
+if(NOT EMSCRIPTEN)
+  target_link_libraries(${PROJECT_NAME}_lib
+    PRIVATE
+      $<BUILD_INTERFACE:mbedtls>
+      $<BUILD_INTERFACE:mbedx509>
+      $<BUILD_INTERFACE:mbedcrypto>
+      $<BUILD_INTERFACE:miniz>
+  )
+endif()
 
 # nlohmann/json — cppboot preferred JSON library. Header-only; enables mog/json.hpp
 # and MOG_HAS_JSON for consumers of this build tree.

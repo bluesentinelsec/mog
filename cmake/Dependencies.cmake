@@ -10,8 +10,10 @@ set(MBEDTLS_TAG v3.6.3)
 set(MINIZ_TAG 3.0.2)
 
 # ---------------------------------------------------------------------------
-# Embedded HTTPS stack (always available — default backend)
+# Embedded HTTPS stack (native platforms only)
 # ---------------------------------------------------------------------------
+
+if(NOT EMSCRIPTEN)
 
 # mbedTLS: small, static-link-friendly TLS used by the embedded backend.
 # Always fetched so the library can HTTPS without system libcurl/OpenSSL.
@@ -97,6 +99,8 @@ if(NOT TARGET miniz)
   target_include_directories(miniz PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
 endif()
 cppboot_mark_system_includes(miniz)
+
+endif()
 
 # ---------------------------------------------------------------------------
 # Preferred application libraries (optional — defaults follow top-level vs embed)

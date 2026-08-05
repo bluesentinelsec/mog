@@ -7,6 +7,7 @@
 #include "http/detail/embedded_backend.hpp"
 #include "http/detail/native_backend.hpp"
 #include "http/detail/transport.hpp"
+#include "http/detail/web_backend.hpp"
 #include "http/detail/winhttp_backend.hpp"
 #include "mog/backend.hpp"
 
@@ -18,7 +19,7 @@ namespace mog::detail
 namespace
 {
 
-constexpr std::size_t kSlotCount = 5; // Auto unused; Embedded..Native
+constexpr std::size_t kSlotCount = 6; // Auto unused; Embedded..Web
 
 struct Registry
 {
@@ -45,10 +46,12 @@ std::size_t SlotIndex(Backend id) noexcept
         return 2;
     case Backend::Native:
         return 3;
-    case Backend::Auto:
+    case Backend::Web:
         return 4;
+    case Backend::Auto:
+        return 5;
     }
-    return 4;
+    return 5;
 }
 
 class EmbeddedTransport final : public Transport
@@ -62,7 +65,25 @@ class EmbeddedTransport final : public Transport
     [[nodiscard]] Result<Response> Execute(Method method, std::string_view url,
                                            const Options &options) override
     {
+#if defined(__EMSCRIPTEN__)
+        (void)method;
+        (void)url;
+        (void)options;
+        return Result<Response>::Err(
+            Error{ErrorCode::UnsupportedBackend,
+                  "the embedded socket backend is unavailable in browsers; use web or auto"});
+#else
         return EmbeddedRequest(method, url, options);
+#endif
+    }
+
+    [[nodiscard]] bool Available() const noexcept override
+    {
+#if defined(__EMSCRIPTEN__)
+        return false;
+#else
+        return true;
+#endif
     }
 };
 
@@ -88,7 +109,7 @@ class UnimplementedTransport final : public Transport
     {
         return Result<Response>::Err(Error{ErrorCode::UnsupportedBackend,
                                            std::string("backend '") + std::string{name_} +
-                                               "' is not implemented yet; use embedded (default)"});
+                                               "' is not implemented on this platform; use auto"});
     }
 
   private:
@@ -153,12 +174,23 @@ void EnsureDefaultTransportsRegistered()
             native = std::make_unique<UnimplementedTransport>("native");
         }
     }
+    auto &web = reg.slots[SlotIndex(Backend::Web)];
+    if (!web)
+    {
+        web = MakeWebTransport();
+        if (!web)
+        {
+            web = std::make_unique<UnimplementedTransport>("web");
+        }
+    }
     reg.defaults_loaded = true;
 }
 
 Backend PreferredNativeBackend() noexcept
 {
-#if defined(__APPLE__)
+#if defined(__EMSCRIPTEN__)
+    return Backend::Web;
+#elif defined(__APPLE__)
     return Backend::Native;
 #elif defined(_WIN32)
     return Backend::WinHttp;
@@ -181,8 +213,8 @@ Backend ResolveAutoBackend()
     if (native != Backend::Embedded)
     {
         Transport *transport = FindTransport(native);
-        // Auto prefers a native backend only once it opts in (feature parity),
-        // not merely because it is available for explicit selection.
+        // Auto prefers a platform backend only once it opts in, not merely
+        // because it is available for explicit selection.
         if (transport != nullptr && transport->Available() && transport->AutoPreferred())
         {
             return native;
@@ -203,7 +235,7 @@ Backend SelectBackend(const Options &options)
         return *env;
     }
 
-    // Auto: prefer the platform native backend when it is available, auto-preferred,
+    // Auto: prefer the platform backend when it is available, auto-preferred,
     // and can service this request; otherwise fall back to embedded.
     const Backend native = PreferredNativeBackend();
     if (native != Backend::Embedded)

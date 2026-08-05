@@ -204,6 +204,88 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  web:
+    name: web (Emscripten/browser)
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install latest CMake and Ninja
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: latest
+          ninjaVersion: latest
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Configure Debug
+        run: >
+          emcmake cmake -S . -B build/web-debug -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMOG_BUILD_TESTS=ON
+          -DMOG_WITH_CLI11=OFF
+          -DMOG_WITH_JSON=OFF
+          -DMOG_WITH_SPDLOG=OFF
+
+      - name: Build Debug
+        run: cmake --build build/web-debug --parallel
+
+      - name: Test Debug in headless Chrome
+        run: >
+          emrun --browser=google-chrome
+          --browser_args="--headless=new --no-sandbox --disable-gpu"
+          --kill_exit --timeout 120
+          build/web-debug/bin/mog_web_test.html
+
+      - name: Configure Release
+        run: >
+          emcmake cmake -S . -B build/web-release -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMOG_BUILD_TESTS=ON
+          -DMOG_WITH_CLI11=OFF
+          -DMOG_WITH_JSON=OFF
+          -DMOG_WITH_SPDLOG=OFF
+
+      - name: Build Release
+        run: cmake --build build/web-release --parallel
+
+      - name: Test Release in headless Chrome
+        run: >
+          emrun --browser=google-chrome
+          --browser_args="--headless=new --no-sandbox --disable-gpu"
+          --kill_exit --timeout 120
+          build/web-release/bin/mog_web_test.html
+
+      - name: Package web consumer library
+        id: package
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION | sed 's/^v//;s/^V//;s/#.*//')"
+          stem="mog-web-wasm32-release-${version}"
+          prefix="${PWD}/dist/${stem}"
+          cmake --install build/web-release --prefix "${prefix}"
+          emcc --version > dist/emscripten-version.txt
+          sed -n '1p' dist/emscripten-version.txt > "${prefix}/EMSCRIPTEN_VERSION"
+          cp LICENSE "${prefix}/LICENSE"
+          (cd dist && zip -r "${stem}.zip" "${stem}" >/dev/null)
+          echo "artifact_name=${stem}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_path=dist/${stem}.zip" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload web package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+
   # Fully static (musl) Linux binary for scratch / minimal images. Proves the
   # "one static binary, encrypted HTTP, nothing else on disk" story end to end.
   linux-static:

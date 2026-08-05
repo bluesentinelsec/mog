@@ -102,10 +102,12 @@ See [TLS trust](guide.html#tls-trust) for how CA roots are resolved.
 
 | Flag | Argument | Description |
 |------|----------|-------------|
-| `--backend` | `NAME` | Force a backend: `auto` (default), `embedded`, `curl`, `winhttp`, `native`. Overrides `MOG_BACKEND`. |
+| `--backend` | `NAME` | Force a backend: `auto` (default), `embedded`, `curl`, `winhttp`, `native`, `web`. Overrides `MOG_BACKEND`. |
 
 `auto` prefers the platform-native backend and falls back to embedded. See
-[Backends](guide.html#backends). An explicit choice is used exactly, with no fallback.
+[Backends](guide.html#backends). An explicit choice is used exactly, with no
+fallback. The CLI is not built for Emscripten, so `web` is unavailable in a CLI
+binary even though it is a valid library backend name.
 
 ## Logging options
 
@@ -147,7 +149,7 @@ Used with `-w`; expanded and written to **stderr** after the transfer:
 
 | Variable | Effect |
 |----------|--------|
-| `MOG_BACKEND` | Default backend (`auto`/`embedded`/`curl`/`winhttp`/`native`); `--backend` overrides. |
+| `MOG_BACKEND` | Default backend (`auto`/`embedded`/`curl`/`winhttp`/`native`/`web`); `--backend` overrides. |
 | `MOG_CA_BUNDLE` | PEM CA bundle path (embedded backend trust). |
 | `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` | Additional CA bundle env fallbacks. |
 | `SSL_CERT_DIR` | Colon-separated directories of PEM CA files. |

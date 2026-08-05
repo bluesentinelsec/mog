@@ -41,6 +41,8 @@ TEST(BackendTest, ParseNames)
     EXPECT_EQ(*mog::ParseBackend("AUTO"), mog::Backend::Auto);
     ASSERT_TRUE(mog::ParseBackend("curl").has_value());
     EXPECT_EQ(*mog::ParseBackend("curl"), mog::Backend::Curl);
+    ASSERT_TRUE(mog::ParseBackend("fetch").has_value());
+    EXPECT_EQ(*mog::ParseBackend("fetch"), mog::Backend::Web);
     EXPECT_FALSE(mog::ParseBackend("nope").has_value());
 }
 

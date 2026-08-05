@@ -236,6 +236,8 @@ class Server
 
     /**
      * @brief Bind, then start the accept loop and worker pool. Non-blocking.
+     * @note Browser WebAssembly returns @c UnsupportedBackend because browsers
+     *       cannot listen for raw TCP connections.
      * @return An error if binding fails or the server is already running.
      */
     [[nodiscard]] Result<void> start();

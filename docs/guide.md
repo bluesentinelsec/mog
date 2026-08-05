@@ -14,14 +14,16 @@ mog exposes one API over several HTTP stacks. Selection follows this precedence:
 
 1. **Explicit.** `Options::backend` or the CLI `--backend` is honored exactly.
 2. **Environment.** `MOG_BACKEND` is used next.
-3. **`Auto`** (the default). It prefers the platform-native backend and otherwise falls back to **embedded**.
+3. **`Auto`** (the default). It selects browser Fetch on Emscripten, otherwise it
+   prefers the platform-native backend and falls back to **embedded**.
 
 | Backend | Selector | Role |
 |---------|----------|------|
 | macOS NSURLSession | `native` | Auto default on macOS |
 | libcurl (Linux & macOS, runtime `dlopen`) | `curl` | Auto default on Linux |
 | Windows WinHTTP | `winhttp` | Auto default on Windows |
-| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Always-present fallback |
+| Browser Fetch (Emscripten) | `web` | Auto default in browser WebAssembly |
+| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Always-present native fallback |
 
 Native libraries are reached without hard-linking. libcurl is loaded at runtime
 with `dlopen`, and WinHTTP and NSURLSession are always-present system frameworks.
@@ -44,6 +46,11 @@ trust store, so supplying PEM material means you want file-based trust.
 Choosing a backend explicitly disables the fallback. That request uses exactly
 the named backend.
 
+The web backend is not a socket emulation layer. It uses browser Fetch and is
+therefore governed by CORS, browser TLS/cookie policy, and browser-managed
+redirects and content decoding. See the [Web / Emscripten guide](web.html) for the exact
+contract.
+
 ## TLS trust
 
 When verification is on (the default), the embedded backend resolves CA roots in
@@ -60,6 +67,11 @@ roots ship inside the binary. Set `MOG_NO_EMBEDDED_CA=1` to forbid that fallback
 Native backends use the OS trust store directly.
 
 ## Request behavior
+
+The behaviors below describe native backends. Browser Fetch owns several of
+these policies and does not support response streaming, manual cookies, or all
+native authentication and TLS controls. See [Web / Emscripten](web.html) before
+using these options in WebAssembly.
 
 - **Redirects** are followed by default, up to 5. Use `--max-redirs` to change the limit, or `--no-location` to disable following. A `301` or `302` on a `POST` becomes a `GET`, and a `303` becomes a `GET`.
 - **Cookies.** `Session` keeps a jar scoped by domain, path, and the `Secure` flag. It stores `Set-Cookie` and replays matching cookies on later requests.

@@ -52,6 +52,10 @@ std::optional<Backend> ParseBackend(std::string_view text)
     {
         return Backend::Native;
     }
+    if (lower == "web" || lower == "fetch" || lower == "browser")
+    {
+        return Backend::Web;
+    }
     return std::nullopt;
 }
 
@@ -69,6 +73,8 @@ std::string_view ToString(Backend backend) noexcept
         return "winhttp";
     case Backend::Native:
         return "native";
+    case Backend::Web:
+        return "web";
     }
     return "unknown";
 }

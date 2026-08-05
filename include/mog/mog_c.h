@@ -156,7 +156,7 @@ extern "C"
     /** @brief HTTP proxy URL, e.g. "http://127.0.0.1:8080". */
     MOG_C_API void mog_request_set_proxy(mog_request *req, const char *proxy_url);
     /**
-     * @brief Force a backend by name: "auto", "embedded", "curl", "winhttp", "native".
+     * @brief Force a backend by name: "auto", "embedded", "curl", "winhttp", "native", "web".
      *        An unknown name leaves the current selection unchanged.
      */
     MOG_C_API void mog_request_set_backend(mog_request *req, const char *backend);

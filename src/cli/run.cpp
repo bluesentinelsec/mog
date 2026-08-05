@@ -102,6 +102,7 @@ int Run(const Prepared &prepared, Streams streams)
     {
         for (const auto &h : response.headers)
         {
+            static_cast<void>(h);
             MOG_LOG_DEBUG("cli: < {}: {}", h.name, h.value);
         }
     }

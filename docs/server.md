@@ -11,11 +11,13 @@ serves HTTPS using the bundled mbedTLS. There is a `mog serve` command for
 serving a directory, and a `mog::Server` library API for building real
 applications with routes and handlers.
 
-The server is embedded only. Unlike the client, it does not have OS-native
+The server is available on native platforms only. An Emscripten build is a
+browser client and `Server::start()` returns `UnsupportedBackend`; see the
+[Web / Emscripten guide](web.html). On native platforms the server uses the
+embedded implementation only. Unlike the client, it does not have OS-native
 backends, because there is no ubiquitous cross-platform native server library to
-load. The embedded implementation is the aligned choice: one implementation on
-every platform, with the same zero-dependency, static-link story as the rest of
-mog.
+load. This gives native platforms one implementation with the same
+zero-dependency, static-link story as the rest of mog.
 
 ## CLI: `mog serve`
 

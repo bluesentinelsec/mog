@@ -5,7 +5,9 @@
 
 #include "mog/session.hpp"
 
+#if !defined(__EMSCRIPTEN__)
 #include "http/detail/connection_pool.hpp"
+#endif
 #include "http/detail/cookie_jar.hpp"
 #include "http/detail/url.hpp"
 #include "mog/log.hpp"
@@ -21,8 +23,12 @@ namespace
 
 std::shared_ptr<void> MakeSessionPool()
 {
+#if defined(__EMSCRIPTEN__)
+    return {};
+#else
     return std::shared_ptr<void>(new detail::ConnectionPool(),
                                  [](void *p) { delete static_cast<detail::ConnectionPool *>(p); });
+#endif
 }
 
 } // namespace

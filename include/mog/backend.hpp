@@ -15,9 +15,8 @@ namespace mog
  * @brief Available HTTP transport backends.
  *
  * @c Auto resolves using environment override (if any) then the default
- * embedded stack. Platform-native backends (curl / WinHTTP / NSURLSession)
- * will be wired in later releases; requesting them today returns
- * @c ErrorCode::UnsupportedBackend unless implemented.
+ * embedded stack. Browser WebAssembly uses the browser Fetch API instead of
+ * raw sockets.
  */
 enum class Backend
 {
@@ -26,11 +25,12 @@ enum class Backend
     Curl,     ///< Runtime libcurl via dlopen (planned).
     WinHttp,  ///< Windows WinHTTP (planned).
     Native,   ///< OS-native (e.g. NSURLSession on macOS) (planned).
+    Web,      ///< Browser Fetch API (Emscripten only).
 };
 
 /**
  * @brief Parse a backend name (case-insensitive).
- * @param text One of: auto, embedded, curl, winhttp, native.
+ * @param text One of: auto, embedded, curl, winhttp, native, web.
  * @return Backend or nullopt if unknown.
  */
 [[nodiscard]] std::optional<Backend> ParseBackend(std::string_view text);
@@ -46,7 +46,7 @@ enum class Backend
  * Precedence (highest first):
  * 1. @p explicit_override when set (library Options or CLI --backend)
  * 2. Environment variable @c MOG_BACKEND
- * 3. @c Backend::Auto → @c Backend::Embedded (current default)
+ * 3. @c Backend::Auto → platform-native transport, browser Fetch, or embedded.
  *
  * @param explicit_override Optional caller override.
  * @return Concrete backend (never @c Auto).
