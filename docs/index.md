@@ -8,11 +8,11 @@ description: "mog is a lightweight, static-link-friendly C++ HTTP/S client and C
   <h1>mog</h1>
   <p class="tagline">A lightweight, static-link-friendly HTTP/S client for C++. One binary, encrypted requests, no dependency headaches.</p>
   <div class="badges">
-    <span>C++20</span><span>Linux · macOS · Windows · WebAssembly</span><span>MIT</span><span>HTTP/S</span><span>zero required deps</span>
+    <span class="badge rounded-pill">C++20</span><span class="badge rounded-pill">Linux · macOS · Windows · WebAssembly</span><span class="badge rounded-pill">MIT</span><span class="badge rounded-pill">HTTP/S</span><span class="badge rounded-pill">zero required deps</span>
   </div>
-  <div class="cta">
-    <a class="btn primary" href="#quick-start">Quick start</a>
-    <a class="btn ghost" href="cli.html">CLI manual</a>
+  <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
+    <a class="btn btn-primary rounded-pill px-4" href="#quick-start">Quick start</a>
+    <a class="btn btn-outline-primary rounded-pill px-4" href="cli.html">CLI manual</a>
   </div>
 </div>
 
@@ -56,13 +56,13 @@ if (r) {
 }
 ```
 
-<div class="grid">
-  <div class="card"><h3>Static &amp; self-contained</h3><p>Embedded HTTP/1.1 + mbedTLS + bundled Mozilla CAs. Runs on scratch images.</p></div>
-  <div class="card"><h3>OS-native backends</h3><p>curl (dlopen), NSURLSession, and WinHTTP. Preferred automatically, at feature parity.</p></div>
-  <div class="card"><h3>TLS done right</h3><p>Native hybrid trust uses system then embedded roots; browser builds use browser TLS.</p></div>
-  <div class="card"><h3>Native controls</h3><p>Redirects, cookies, gzip, streaming, multipart uploads, Basic/Bearer/Digest, mTLS, proxy.</p></div>
-  <div class="card"><h3>Browser WebAssembly</h3><p>HTTP/S client via browser Fetch, with CORS and browser-managed TLS.</p></div>
-  <div class="card"><h3>Embedded server</h3><p>Native HTTP/1.1 server with routes, static files, and TLS. <code>mog serve</code> or <code>mog::Server</code>.</p></div>
+<div class="row row-cols-1 row-cols-md-2 g-4 feature-grid">
+  <div class="col"><div class="card h-100"><div class="card-body"><h3 class="card-title">Static &amp; self-contained</h3><p class="card-text">Embedded HTTP/1.1 + mbedTLS + bundled Mozilla CAs. Runs on scratch images.</p></div></div></div>
+  <div class="col"><div class="card h-100"><div class="card-body"><h3 class="card-title">OS-native backends</h3><p class="card-text">curl (dlopen), NSURLSession, and WinHTTP. Preferred automatically, at feature parity.</p></div></div></div>
+  <div class="col"><div class="card h-100"><div class="card-body"><h3 class="card-title">TLS done right</h3><p class="card-text">Native hybrid trust uses system then embedded roots; browser builds use browser TLS.</p></div></div></div>
+  <div class="col"><div class="card h-100"><div class="card-body"><h3 class="card-title">Native controls</h3><p class="card-text">Redirects, cookies, gzip, streaming, multipart uploads, Basic/Bearer/Digest, mTLS, proxy.</p></div></div></div>
+  <div class="col"><div class="card h-100"><div class="card-body"><h3 class="card-title">Browser WebAssembly</h3><p class="card-text">HTTP/S client via browser Fetch, with CORS and browser-managed TLS.</p></div></div></div>
+  <div class="col"><div class="card h-100"><div class="card-body"><h3 class="card-title">Embedded server</h3><p class="card-text">Native HTTP/1.1 server with routes, static files, and TLS. <code>mog serve</code> or <code>mog::Server</code>.</p></div></div></div>
 </div>
 
 ## Backends at a glance
