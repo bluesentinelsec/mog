@@ -23,7 +23,8 @@ OpenSSL, and a chain of transitive dependencies. mog does the opposite. It
 prefers the HTTP stack your operating system already ships. That means libcurl
 on Linux (loaded at runtime), NSURLSession on macOS, and WinHTTP on Windows. When
 none of those is available, it falls back to a small embedded stack (HTTP/1.1 +
-mbedTLS) that is statically linked and always present.
+mbedTLS) that is statically linked and present on native platforms. Emscripten
+uses the browser Fetch API and the browser's TLS implementation.
 
 You can static-link mog into a single binary and run it anywhere. That includes a
 `FROM scratch` container with nothing on disk but the executable. HTTPS still
@@ -76,23 +77,26 @@ server.start();   // non-blocking; server.wait() to block
 
 - **Static and self-contained.** The embedded backend bundles HTTP/1.1, mbedTLS, and the Mozilla CA roots. It runs on scratch images.
 - **OS-native backends.** curl (`dlopen`), NSURLSession, and WinHTTP are preferred automatically, and they are at feature parity with the fallback.
-- **Hybrid TLS trust.** The system store is tried first, then the embedded roots. HTTPS verifies everywhere.
-- **Requests-style library, a curl-style CLI, and a C API.** The C binding (`mog/mog_c.h`, shipped as a shared library) makes mog callable from C and from FFI runtimes like Python ctypes.
-- **Embedded HTTP/S server.** A thread-safe HTTP/1.1 server with routes, static file serving, and TLS (including self-signed for local development), via `mog serve` and the `mog::Server` API.
-- Redirects, cookies (domain, path, and Secure), gzip and deflate, streaming download, multipart upload, Basic, Bearer, and Digest auth, mTLS, HTTP proxy, and JSON interop.
+- **Hybrid native TLS trust.** The system store is tried first, then the embedded roots. Browser builds use browser TLS trust.
+- **Requests-style library, plus a native curl-style CLI and C API.** The C binding (`mog/mog_c.h`, shipped as a shared library) makes mog callable from C and from FFI runtimes like Python ctypes.
+- **Native embedded HTTP/S server.** A thread-safe HTTP/1.1 server with routes, static file serving, and TLS (including self-signed for local development), via `mog serve` and the `mog::Server` API.
+- **Browser WebAssembly.** Emscripten builds use browser Fetch with the same synchronous C++ request API; browser tests run in headless Chrome in CI.
+- **Full native request controls.** Redirects, cookie jars, gzip and deflate, streaming downloads, multipart uploads, Basic/Bearer/Digest auth, mTLS, HTTP proxy, and JSON interop. Browser-supported behavior is listed in the [Web / Emscripten guide](docs/web.md).
 
 ## Backends
 
-`Auto` (the default) prefers the platform-native backend and falls back to
-embedded. It chooses **per request**, so a call never silently loses a feature.
-Select one explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
+On native platforms, `Auto` (the default) prefers the platform-native backend
+and falls back to embedded. It chooses **per request**, so a native call never
+silently loses a feature. Emscripten `Auto` selects browser Fetch. Select one
+explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 
 | Backend | Selector | Role |
 |---------|----------|------|
 | macOS NSURLSession | `native` | Auto default on macOS |
 | libcurl (runtime `dlopen`) | `curl` | Auto default on Linux |
 | Windows WinHTTP | `winhttp` | Auto default on Windows |
-| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Always-present fallback, and the API you design against |
+| Browser Fetch (Emscripten) | `web` | Auto default in browser WebAssembly |
+| Embedded (HTTP/1.1 + mbedTLS) | `embedded` | Always-present native fallback, and the API you design against |
 
 ## Documentation
 
@@ -101,6 +105,8 @@ Select one explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 - **[Guide](docs/guide.md)**: backends, TLS trust, request behavior, and static or scratch deployment.
 - **[Library](docs/library.md)**: the C++ API, covering `Options`, `Response`, `Session`, streaming, multipart, and auth.
 - **[Server](docs/server.md)**: the embedded HTTP/S server, `mog serve` and the `mog::Server` API.
+- **[Web / Emscripten](docs/web.md)**: caller integration, HTTPS/CORS behavior, supported options, and browser limitations.
+- **[Web build and CI](docs/web-maintainers.md)**: maintainer builds, browser tests, CI coverage, and release packaging.
 - **[C API](docs/c-api.md)**: the C binding for C programs and FFI runtimes such as Python ctypes.
 
 ## Build
@@ -109,7 +115,12 @@ Select one explicitly with `--backend`, `MOG_BACKEND`, or `Options::backend`.
 make            # Debug build + tests
 make release    # optimized
 make test       # unit tests
+make web-test   # Emscripten build + headless-browser tests (emsdk required)
+make web-package
 ```
+
+See the [Web build and CI guide](docs/web-maintainers.md) for prerequisites,
+direct Emscripten commands, test coverage, and package contents.
 
 Windows uses `build.bat` or `build.bat test`. To produce a fully static Linux
 binary for scratch or minimal images, run

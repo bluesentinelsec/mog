@@ -74,15 +74,34 @@ option(MOG_WITH_CLI11 "CLI argument parsing via CLI11" ${MOG_IS_TOP_LEVEL})
 option(MOG_WITH_JSON "JSON parsing via nlohmann/json" ${MOG_IS_TOP_LEVEL})
 option(MOG_WITH_SPDLOG "Console/file logging via spdlog" ${MOG_IS_TOP_LEVEL})
 
+set(MOG_DEFAULT_BUILD_APP ${MOG_IS_TOP_LEVEL})
+set(MOG_DEFAULT_BUILD_BENCHMARKS ${MOG_IS_TOP_LEVEL})
+set(MOG_DEFAULT_BUILD_C_SHARED ${MOG_IS_TOP_LEVEL})
+if(EMSCRIPTEN)
+  # Browsers consume the static C++ library. They cannot host mog's CLI/server,
+  # and Emscripten side modules are not the portable C-FFI package shipped on
+  # native platforms.
+  set(MOG_DEFAULT_BUILD_APP OFF)
+  set(MOG_DEFAULT_BUILD_BENCHMARKS OFF)
+  set(MOG_DEFAULT_BUILD_C_SHARED OFF)
+endif()
+
 # When embedded, skip app/tests/benchmarks unless the consumer opts in.
-option(MOG_BUILD_APP "Build the demo application executable" ${MOG_IS_TOP_LEVEL})
+option(MOG_BUILD_APP "Build the demo application executable" ${MOG_DEFAULT_BUILD_APP})
 option(MOG_BUILD_TESTS "Build unit tests" ${MOG_IS_TOP_LEVEL})
-option(MOG_BUILD_BENCHMARKS "Build benchmarks" ${MOG_IS_TOP_LEVEL})
+option(MOG_BUILD_BENCHMARKS "Build benchmarks" ${MOG_DEFAULT_BUILD_BENCHMARKS})
 # ASan + UBSan for project targets (intended for Linux GCC/Clang; see make sanitizer).
 option(MOG_ENABLE_SANITIZERS "Enable Address+UBSan on project targets" OFF)
 # The C API (include/mog/mog_c.h) is shipped as a shared library for C and FFI
 # callers. See src/c_api. On by default for top-level builds.
-option(MOG_BUILD_C_SHARED "Build the mog_c shared library (C API for FFI)" ${MOG_IS_TOP_LEVEL})
+option(MOG_BUILD_C_SHARED "Build the mog_c shared library (C API for FFI)" ${MOG_DEFAULT_BUILD_C_SHARED})
+
+if(EMSCRIPTEN AND (MOG_BUILD_APP OR MOG_BUILD_C_SHARED OR MOG_BUILD_BENCHMARKS))
+  message(FATAL_ERROR
+    "Emscripten builds support the static mog C++ library and browser tests only; "
+    "set MOG_BUILD_APP, MOG_BUILD_C_SHARED, and MOG_BUILD_BENCHMARKS to OFF"
+  )
+endif()
 
 # Building a shared object from the otherwise-static core requires
 # position-independent code throughout, including the FetchContent dependencies
@@ -127,6 +146,13 @@ set_target_properties(${PROJECT_NAME}_lib PROPERTIES
   VERSION ${PROJECT_VERSION}
   SOVERSION ${PROJECT_VERSION_MAJOR}
 )
+
+if(EMSCRIPTEN)
+  # The public request API is synchronous. The web transport awaits window.fetch
+  # and Asyncify yields the Wasm stack to the browser until it completes. Keep
+  # this transitive so every final consumer link gets the required transform.
+  target_link_options(${PROJECT_NAME}_lib INTERFACE "SHELL:-sASYNCIFY=1")
+endif()
 
 target_include_directories(${PROJECT_NAME}_lib
   PUBLIC
@@ -225,4 +251,3 @@ install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/mogConfigVersion.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
 )
-

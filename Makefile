@@ -1,7 +1,7 @@
 # Idiomatic GNU Make wrapper around the CMake build.
 # Prefer these targets for day-to-day work.
 
-.PHONY: all debug release test bench sanitizer fmt doc clean reconfigure-debug reconfigure-release \
+.PHONY: all debug release test bench sanitizer web web-test web-package fmt doc clean reconfigure-debug reconfigure-release \
         configure-debug configure-release link_compile_commands copy_compile_commands help tags
 
 PROJECT_NAME := mog
@@ -10,6 +10,7 @@ TARGET_NAME  := mog
 BUILD_DEBUG  := build/debug
 BUILD_RELEASE := build/release
 BUILD_SANITIZER := build/sanitizer
+BUILD_WEB := build/web
 GENERATOR    ?=
 CMAKE_FLAGS  ?=
 
@@ -40,6 +41,9 @@ help:
 	@echo "  make test          - run unit tests (Debug)"
 	@echo "  make bench         - run microbenchmarks (Release preferred)"
 	@echo "  make sanitizer     - ASan+UBSan build + ctest (Linux/Clang/GCC)"
+	@echo "  make web           - Emscripten Release library + browser tests"
+	@echo "  make web-test      - run Emscripten tests in headless Chrome via emrun"
+	@echo "  make web-package   - install and zip the Emscripten consumer package"
 	@echo "  make fmt           - run clang-format on all sources"
 	@echo "  make doc           - generate Doxygen HTML under docs/html"
 	@echo "  make tags           - regenerate ctags index (Universal Ctags)"
@@ -116,6 +120,35 @@ endif
 	fi; \
 	export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1; \
 	ctest --test-dir $(BUILD_SANITIZER) --output-on-failure --parallel
+
+web:
+	@command -v emcmake >/dev/null 2>&1 || { echo "emcmake not found; activate the Emscripten SDK"; exit 1; }
+	emcmake cmake -S . -B $(BUILD_WEB) $(CMAKE_GENERATOR_FLAG) \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DMOG_BUILD_TESTS=ON \
+	  -DMOG_WITH_CLI11=OFF \
+	  -DMOG_WITH_JSON=OFF \
+	  -DMOG_WITH_SPDLOG=OFF
+	cmake --build $(BUILD_WEB) --parallel
+
+web-test: web
+	@command -v emrun >/dev/null 2>&1 || { echo "emrun not found; activate the Emscripten SDK"; exit 1; }
+	emrun --browser=google-chrome \
+	  --browser_args="--headless=new --no-sandbox --disable-gpu" \
+	  --kill_exit --timeout 120 $(BUILD_WEB)/bin/mog_web_test.html
+
+web-package: web
+	@version=$$(tr -d '[:space:]' < VERSION | sed 's/^v//;s/#.*//'); \
+	  stem="mog-web-wasm32-release-$$version"; \
+	  package_root="$(BUILD_WEB)/package"; \
+	  prefix="$$package_root/$$stem"; \
+	  cmake -E remove_directory "$$prefix"; \
+	  cmake --install $(BUILD_WEB) --prefix "$$prefix"; \
+	  emcc --version > "$$package_root/emscripten-version.txt"; \
+	  sed -n '1p' "$$package_root/emscripten-version.txt" > "$$prefix/EMSCRIPTEN_VERSION"; \
+	  cp LICENSE "$$prefix/LICENSE"; \
+	  (cd "$$package_root" && cmake -E tar cf "$$stem.zip" --format=zip "$$stem"); \
+	  echo "wrote $$package_root/$$stem.zip"
 
 fmt:
 	@command -v clang-format >/dev/null 2>&1 || { echo "clang-format not found"; exit 1; }

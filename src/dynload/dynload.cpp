@@ -8,7 +8,8 @@
 #include <string>
 #include <utility>
 
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+#elif defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -22,9 +23,11 @@ namespace mog
 namespace
 {
 
-std::string LastDynloadError()
+[[maybe_unused]] std::string LastDynloadError()
 {
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    return "runtime shared libraries are unavailable in browser WebAssembly";
+#elif defined(_WIN32)
     const DWORD code = GetLastError();
     if (code == 0)
     {
@@ -89,7 +92,12 @@ Result<void> SharedLibrary::Open(std::string_view path, SharedLibraryMode mode)
 
     const std::string path_str{path};
 
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    (void)mode;
+    return Result<void>::Err(
+        Error{ErrorCode::DynamicLibraryError,
+              "runtime shared libraries are unavailable in browser WebAssembly"});
+#elif defined(_WIN32)
     (void)mode; // Windows LoadLibrary has no direct RTLD_LAZY/NOW equivalent.
     // LOAD_LIBRARY_SEARCH flags are optional; default search path is fine for system DLLs.
     HMODULE mod = LoadLibraryA(path_str.c_str());
@@ -123,7 +131,8 @@ void SharedLibrary::Close() noexcept
     {
         return;
     }
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+#elif defined(_WIN32)
     FreeLibrary(static_cast<HMODULE>(handle_));
 #else
     dlclose(handle_);
@@ -144,7 +153,11 @@ Result<void *> SharedLibrary::Lookup(const char *symbol_name) const
         return Result<void *>::Err(Error{ErrorCode::InvalidArgument, "symbol name is empty"});
     }
 
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    return Result<void *>::Err(
+        Error{ErrorCode::DynamicLibraryError,
+              "runtime shared libraries are unavailable in browser WebAssembly"});
+#elif defined(_WIN32)
     FARPROC proc = GetProcAddress(static_cast<HMODULE>(handle_), symbol_name);
     if (proc == nullptr)
     {
@@ -182,7 +195,9 @@ Result<SharedLibrary> SharedLibrary::Load(std::string_view path, SharedLibraryMo
 
 std::string_view SharedLibraryExtension() noexcept
 {
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    return ".wasm";
+#elif defined(_WIN32)
     return ".dll";
 #elif defined(__APPLE__)
     return ".dylib";

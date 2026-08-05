@@ -188,9 +188,10 @@ Result<Prepared> PrepareRequest(const Args &args)
         auto parsed = ParseBackend(args.backend);
         if (!parsed)
         {
-            return Result<Prepared>::Err(Error{
-                ErrorCode::InvalidArgument, "unknown backend '" + args.backend +
-                                                "' (expected auto|embedded|curl|winhttp|native)"});
+            return Result<Prepared>::Err(
+                Error{ErrorCode::InvalidArgument,
+                      "unknown backend '" + args.backend +
+                          "' (expected auto|embedded|curl|winhttp|native|web)"});
         }
         options.backend = *parsed;
     }

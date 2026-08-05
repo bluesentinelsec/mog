@@ -5,7 +5,7 @@ description: "Using mog as a C++ library: requests-style free functions, Session
 
 # Library
 
-mog is a C++17 library with a requests-style API. Include the umbrella header:
+mog is a C++20 library with a requests-style API. Include the umbrella header:
 
 ```cpp
 #include <mog/mog.hpp>
@@ -51,6 +51,10 @@ opt.backend = mog::Backend::Curl;      // force a backend (default: Auto)
 | `response_writer` | Stream the body to a sink (see below) |
 | `backend` | Backend override |
 
+This table is the cross-platform API surface, not a promise that a browser can
+control every field. The web backend rejects unsupported native controls with a
+clear error; see [Web / Emscripten](web.html#supported-request-behavior).
+
 ## Response
 
 ```cpp
@@ -59,7 +63,7 @@ r->headers;          // std::vector<Header> (name/value, order preserved)
 r->text();           // const std::string& (body)
 r->header("Content-Type");
 r->downloaded_bytes; // bytes received
-r->backend;          // "embedded" | "curl" | "native" | "winhttp"
+r->backend;          // "embedded" | "curl" | "native" | "winhttp" | "web"
 r->ok();             // 2xx/3xx
 r->raise_for_status();
 ```
@@ -74,6 +78,10 @@ s.set_bearer_token("token");
 s.set_base_url("https://api.example.com");
 auto me = s.get("/me");     // cookies + keep-alive carried across calls
 ```
+
+In browser WebAssembly, `Session` still supplies defaults and a base URL, but
+the browser owns cookies and connection reuse. See the
+[Web / Emscripten guide](web.html) for the browser-specific contract.
 
 ## Streaming
 
@@ -116,4 +124,5 @@ make release
 
 The library target is `mog_lib` (static). See the
 [README](https://github.com/bluesentinelsec/mog) for CMake / FetchContent usage
-and the [Guide](guide.html) for backend and TLS behavior.
+and the [Guide](guide.html) for backend and TLS behavior. Emscripten callers
+should start with [Web / Emscripten](web.html).

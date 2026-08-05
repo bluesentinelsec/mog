@@ -5,6 +5,10 @@ description: "Calling mog from C and from FFI runtimes like Python ctypes throug
 
 # C API
 
+The shared C API is a native-platform package. Emscripten releases ship the
+static C++ client library only; browser callers should use the
+[Web / Emscripten guide](web.html).
+
 mog ships a small C binding so it can be called from plain C and from foreign
 function interface runtimes such as Python ctypes, LuaJIT FFI, and Ruby Fiddle.
 The binding lives in a single header, `mog/mog_c.h`, and is provided as a

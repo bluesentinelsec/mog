@@ -39,7 +39,7 @@ void AddCommonOptions(CLI::App *app, Args &cli)
     app->add_option("--key", cli.client_key, "Client private-key PEM (mTLS; defaults to --cert)");
     app->add_option("--pass", cli.client_key_password, "Passphrase for --key");
     app->add_option("--backend", cli.backend,
-                    "Backend: auto|embedded|curl|winhttp|native (overrides MOG_BACKEND)");
+                    "Backend: auto|embedded|curl|winhttp|native|web (overrides MOG_BACKEND)");
     app->add_option("--timeout", cli.timeout_sec, "Timeout in seconds")->default_val(30.0);
     app->add_option("--connect-timeout", cli.connect_timeout_sec, "Connect timeout in seconds");
     app->add_option("--max-redirs", cli.max_redirs, "Maximum redirects")->default_val(5);
