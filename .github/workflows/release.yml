@@ -446,6 +446,50 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-ios:
+    name: build-ios (XCFramework / simulator)
+    needs: prepare
+    runs-on: macos-latest
+    timeout-minutes: 35
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install latest CMake and Ninja
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: latest
+          ninjaVersion: latest
+
+      - name: Build Release XCFramework and consumer apps
+        run: |
+          scripts/build_ios_xcframework.sh Release build/ios/release
+          scripts/build_ios_test_apps.sh \
+            build/ios/release/mog.xcframework Release build/ios/consumer-release
+
+      - name: Verify Release XCFramework version and slices
+        run: >
+          scripts/verify_ios_xcframework.sh
+          build/ios/release/mog.xcframework
+          "${RELEASE_VERSION}"
+
+      - name: Run Release package tests in iOS Simulator
+        env:
+          BUILD_DIR: build/ios/consumer-release/iphonesimulator
+        run: scripts/run_ios_tests.sh
+
+      - name: Upload iOS Release XCFramework
+        uses: actions/upload-artifact@v7
+        with:
+          name: mog-ios-xcframework-release-${{ needs.prepare.outputs.version }}
+          path: build/ios/release/mog-ios-xcframework-release-${{ needs.prepare.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
   build-linux-static:
     name: build-linux-static (alpine/musl)
     needs: prepare
@@ -496,7 +540,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [prepare, build, build-web, build-android, build-linux-static]
+    needs: [prepare, build, build-web, build-android, build-ios, build-linux-static]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -43,6 +43,7 @@ For day-to-day build commands, see [README.md](README.md).
 | `tests/http/keep_alive_test.cpp` | Session connection reuse |
 | `src/http/detail/connection_pool.*` | Idle stream pool for keep-alive |
 | `tests/http/test_support/` | Shared in-process HTTP server for client tests |
+| `tests/ios/` | XCFramework consumer app for device links and Simulator HTTP/S tests |
 
 Public headers live under `include/mog/` (directory tree matches the C++ namespace).
 
@@ -118,6 +119,7 @@ Prefer the Makefile (Unix) or `build.bat` (Windows) wrappers:
 | Unit tests | `make test` | `build.bat test` |
 | Benchmarks | `make bench` | `build.bat bench` |
 | ASan+UBSan (Linux) | `make sanitizer` | n/a (use Linux/CI) |
+| iOS package tests | `make ios-test` | n/a (requires macOS/Xcode) |
 | Format | `make fmt` | `build.bat fmt` |
 | API docs | `make doc` | `build.bat doc` |
 | ctags index | `make tags` (if enabled) | `build.bat tags` |

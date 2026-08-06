@@ -25,7 +25,7 @@ project(mog
   LANGUAGES C CXX
 )
 
-# macOS native backend is Objective-C++ (NSURLSession); enable OBJCXX there.
+# Apple native backend is Objective-C++ (NSURLSession); enable OBJCXX there.
 if(APPLE)
   enable_language(OBJCXX)
 endif()
@@ -69,10 +69,10 @@ include(CompilerWarnings)
 include(Sanitizers)
 
 # Preferred third-party libraries (FetchContent). On for top-level native apps;
-# off when embedded and for the Android Prefab package, whose public contract is
+# off when embedded and for the Android/iOS packages, whose public contract is
 # the dependency-free core C++ API.
 set(MOG_DEFAULT_WITH_OPTIONAL_DEPS ${MOG_IS_TOP_LEVEL})
-if(ANDROID)
+if(ANDROID OR IOS)
   set(MOG_DEFAULT_WITH_OPTIONAL_DEPS OFF)
 endif()
 option(MOG_WITH_CLI11 "CLI argument parsing via CLI11" ${MOG_DEFAULT_WITH_OPTIONAL_DEPS})
@@ -94,6 +94,14 @@ endif()
 if(ANDROID)
   # Android consumers receive the C++ library as a Prefab AAR. Repository tests
   # are hosted by the Gradle test application and run on an emulator/device.
+  set(MOG_DEFAULT_BUILD_APP OFF)
+  set(MOG_DEFAULT_BUILD_TESTS OFF)
+  set(MOG_DEFAULT_BUILD_BENCHMARKS OFF)
+  set(MOG_DEFAULT_BUILD_C_SHARED OFF)
+endif()
+if(IOS)
+  # iOS consumers receive the C++ library as a static XCFramework. Repository
+  # package tests are hosted by a separate application and run in Simulator.
   set(MOG_DEFAULT_BUILD_APP OFF)
   set(MOG_DEFAULT_BUILD_TESTS OFF)
   set(MOG_DEFAULT_BUILD_BENCHMARKS OFF)
@@ -129,6 +137,22 @@ endif()
 if(ANDROID AND (MOG_WITH_CLI11 OR MOG_WITH_JSON OR MOG_WITH_SPDLOG))
   message(FATAL_ERROR
     "The Android Prefab AAR contains the dependency-free core API; set "
+    "MOG_WITH_CLI11, MOG_WITH_JSON, and MOG_WITH_SPDLOG to OFF"
+  )
+endif()
+
+if(IOS AND (MOG_BUILD_APP OR MOG_BUILD_TESTS OR MOG_BUILD_C_SHARED OR
+            MOG_BUILD_BENCHMARKS))
+  message(FATAL_ERROR
+    "iOS builds provide the mog XCFramework library; set MOG_BUILD_APP, "
+    "MOG_BUILD_TESTS, MOG_BUILD_C_SHARED, and MOG_BUILD_BENCHMARKS to OFF. "
+    "Use the iOS package test application for Simulator tests."
+  )
+endif()
+
+if(IOS AND (MOG_WITH_CLI11 OR MOG_WITH_JSON OR MOG_WITH_SPDLOG))
+  message(FATAL_ERROR
+    "The iOS XCFramework contains the dependency-free core API; set "
     "MOG_WITH_CLI11, MOG_WITH_JSON, and MOG_WITH_SPDLOG to OFF"
   )
 endif()

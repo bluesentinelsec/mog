@@ -45,7 +45,7 @@ endif()
 # WinHTTP instead. Sanitizer builds also use the stub: ASan/UBSan cannot reliably
 # instrument the dlopen'd, uninstrumented system libcurl (false positives at the
 # boundary), so curl is validated by the normal Debug/Release CI jobs instead.
-if(EMSCRIPTEN OR ANDROID OR WIN32 OR MOG_ENABLE_SANITIZERS)
+if(EMSCRIPTEN OR ANDROID OR IOS OR WIN32 OR MOG_ENABLE_SANITIZERS)
   target_sources(${PROJECT_NAME}_lib
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/curl_backend_stub.cpp)
 else()
@@ -63,7 +63,7 @@ else()
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/winhttp_backend_stub.cpp)
 endif()
 
-# Platform-native backend: NSURLSession on macOS (Objective-C++), stub elsewhere.
+# Platform-native backend: NSURLSession on Apple platforms (Objective-C++), stub elsewhere.
 if(APPLE)
   target_sources(${PROJECT_NAME}_lib
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/detail/native_backend_apple.mm)

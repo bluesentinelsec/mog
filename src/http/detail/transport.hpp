@@ -2,7 +2,7 @@
  * @file transport.hpp
  * @brief HTTP transport backend interface (Open/Closed for new stacks).
  *
- * New backends (curl, WinHTTP, NSURLSession, browser Fetch) implement @ref Transport and
+ * New backends (curl, WinHTTP, Apple NSURLSession, browser Fetch) implement @ref Transport and
  * register themselves; @c mog::request dispatches via the registry without
  * growing a central switch for each addition.
  */
@@ -58,9 +58,9 @@ class Transport
      *
      * Under @c Auto, a request needing a feature the preferred native backend does
      * not implement (streaming @c response_writer, Digest auth, and for the
-     * NSURLSession/WinHTTP backends a PEM CA bundle or client certificate)
-     * transparently falls back to embedded on native platforms. This is ignored
-     * when a backend is selected explicitly.
+     * NSURLSession/WinHTTP backends a PEM CA bundle or client certificate, and
+     * for NSURLSession an explicit proxy) transparently falls back to embedded
+     * on native platforms. This is ignored when a backend is selected explicitly.
      */
     [[nodiscard]] virtual bool Supports(const Options & /*options*/) const noexcept
     {

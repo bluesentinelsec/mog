@@ -11,7 +11,7 @@ serves HTTPS using the bundled mbedTLS. There is a `mog serve` command for
 serving a directory, and a `mog::Server` library API for building real
 applications with routes and handlers.
 
-The server is available on native platforms, including Android. An Emscripten build is a
+The server is available on native platforms, including Android and iOS. An Emscripten build is a
 browser client and `Server::start()` returns `UnsupportedBackend`; see the
 [Web / Emscripten guide](web.html). On native platforms the server uses the
 embedded implementation only. Unlike the client, it does not have OS-native
@@ -21,6 +21,8 @@ zero-dependency, static-link story as the rest of mog.
 
 On Android the server is part of the Prefab AAR. The application owns Android
 lifecycle and background-service integration; see the [Android guide](android.html).
+On iOS it is part of the XCFramework, and the application owns lifecycle,
+background execution, and Local Network permission; see the [iOS guide](ios.html).
 
 ## CLI: `mog serve`
 

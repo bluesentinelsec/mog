@@ -359,6 +359,55 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  ios:
+    name: iOS (XCFramework / simulator)
+    runs-on: macos-latest
+    timeout-minutes: 35
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install latest CMake and Ninja
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: latest
+          ninjaVersion: latest
+
+      - name: Build Debug XCFramework and consumer apps
+        run: |
+          scripts/build_ios_xcframework.sh Debug build/ios/debug
+          scripts/build_ios_test_apps.sh \
+            build/ios/debug/mog.xcframework Debug build/ios/consumer-debug
+
+      - name: Build Release XCFramework and consumer apps
+        run: |
+          scripts/build_ios_xcframework.sh Release build/ios/release
+          scripts/build_ios_test_apps.sh \
+            build/ios/release/mog.xcframework Release build/ios/consumer-release
+
+      - name: Run Release package tests in iOS Simulator
+        env:
+          BUILD_DIR: build/ios/consumer-release/iphonesimulator
+        run: scripts/run_ios_tests.sh
+
+      - name: Stage iOS package metadata
+        id: ios_package
+        run: |
+          version="$(tr -d '[:space:]' < VERSION | sed 's/^v//;s/^V//;s/#.*//')"
+          echo "artifact_name=mog-ios-xcframework-release-${version}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_path=build/ios/release/mog-ios-xcframework-release-${version}.zip" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload iOS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.ios_package.outputs.artifact_name }}
+          path: ${{ steps.ios_package.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+
   # Fully static (musl) Linux binary for scratch / minimal images. Proves the
   # "one static binary, encrypted HTTP, nothing else on disk" story end to end.
   linux-static:

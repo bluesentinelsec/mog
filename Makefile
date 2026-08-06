@@ -1,7 +1,7 @@
 # Idiomatic GNU Make wrapper around the CMake build.
 # Prefer these targets for day-to-day work.
 
-.PHONY: all debug release test bench sanitizer web web-test web-package android android-test android-package fmt doc clean reconfigure-debug reconfigure-release \
+.PHONY: all debug release test bench sanitizer web web-test web-package android android-test android-package ios ios-test ios-package fmt doc clean reconfigure-debug reconfigure-release \
         configure-debug configure-release link_compile_commands copy_compile_commands help tags
 
 PROJECT_NAME := mog
@@ -11,6 +11,7 @@ BUILD_DEBUG  := build/debug
 BUILD_RELEASE := build/release
 BUILD_SANITIZER := build/sanitizer
 BUILD_WEB := build/web
+BUILD_IOS := build/ios
 GENERATOR    ?=
 CMAKE_FLAGS  ?=
 
@@ -47,6 +48,9 @@ help:
 	@echo "  make android       - build Debug + Release Prefab AARs and test APKs"
 	@echo "  make android-test  - run Release tests on a connected emulator/device"
 	@echo "  make android-package - copy the versioned Release AAR under build/android"
+	@echo "  make ios           - build Debug + Release XCFrameworks and consumer apps"
+	@echo "  make ios-test      - run the Release XCFramework tests in iOS Simulator"
+	@echo "  make ios-package   - build the versioned Release XCFramework zip"
 	@echo "  make fmt           - run clang-format on all sources"
 	@echo "  make doc           - generate Doxygen HTML under docs/html"
 	@echo "  make tags           - regenerate ctags index (Universal Ctags)"
@@ -169,6 +173,21 @@ android-package:
 	  output="build/android/mog-android-release-$$version.aar"; \
 	  cp android/mog/build/outputs/aar/mog-release.aar "$$output"; \
 	  echo "wrote $$output"
+
+ios:
+	@command -v xcodebuild >/dev/null 2>&1 || { echo "xcodebuild not found; install Xcode"; exit 1; }
+	bash scripts/build_ios_xcframework.sh Debug $(BUILD_IOS)/debug
+	bash scripts/build_ios_test_apps.sh $(BUILD_IOS)/debug/mog.xcframework Debug $(BUILD_IOS)/consumer-debug
+	bash scripts/build_ios_xcframework.sh Release $(BUILD_IOS)/release
+	bash scripts/build_ios_test_apps.sh $(BUILD_IOS)/release/mog.xcframework Release $(BUILD_IOS)/consumer-release
+
+ios-package:
+	@command -v xcodebuild >/dev/null 2>&1 || { echo "xcodebuild not found; install Xcode"; exit 1; }
+	bash scripts/build_ios_xcframework.sh Release $(BUILD_IOS)/release
+
+ios-test: ios-package
+	bash scripts/build_ios_test_apps.sh $(BUILD_IOS)/release/mog.xcframework Release $(BUILD_IOS)/consumer-release
+	BUILD_DIR=$(BUILD_IOS)/consumer-release/iphonesimulator bash scripts/run_ios_tests.sh
 
 fmt:
 	@command -v clang-format >/dev/null 2>&1 || { echo "clang-format not found"; exit 1; }
