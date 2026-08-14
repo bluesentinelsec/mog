@@ -64,3 +64,4 @@ default.profraw
 
 # Convenience symlink created by `make` (repo-root binary only)
 /mog
+.cache/

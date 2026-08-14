@@ -65,8 +65,14 @@ if(MOG_IS_TOP_LEVEL)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-include(CompilerWarnings)
-include(Sanitizers)
+# Absolute-path includes: module-name include() resolves against
+# CMAKE_MODULE_PATH, and when mog is embedded (add_subdirectory /
+# FetchContent) the PARENT project's cmake/ is searched first — a
+# same-named parent module silently shadows ours (observed embedding mog
+# into SDL3-static-extensions, where the parent's Dependencies.cmake won
+# and mog's mbedTLS/miniz were never declared).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompilerWarnings.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Sanitizers.cmake")
 
 # Preferred third-party libraries (FetchContent). On for top-level native apps;
 # off when embedded and for the Android/iOS packages, whose public contract is
@@ -168,7 +174,7 @@ if(MOG_BUILD_C_SHARED OR ANDROID)
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
-include(Dependencies)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake")
 
 # Apply sanitizer flags only to targets created after this point (not FetchContent deps).
 if(MOG_ENABLE_SANITIZERS)
