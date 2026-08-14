@@ -470,6 +470,10 @@ class CurlTransport final : public Transport
         api.easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &status);
         char *effective_url = nullptr;
         api.easy_getinfo(handle, CURLINFO_EFFECTIVE_URL, &effective_url);
+        // CURLINFO_EFFECTIVE_URL points into memory owned by the easy handle,
+        // valid only until easy_cleanup below — copy it out first.
+        std::string effective_url_copy =
+            effective_url != nullptr ? std::string(effective_url) : std::string();
         long redirects = 0;
         api.easy_getinfo(handle, CURLINFO_REDIRECT_COUNT, &redirects);
 
@@ -481,7 +485,7 @@ class CurlTransport final : public Transport
 
         Response response;
         response.status_code = static_cast<int>(status);
-        response.url = effective_url != nullptr ? std::string(effective_url) : full_url;
+        response.url = !effective_url_copy.empty() ? std::move(effective_url_copy) : full_url;
         response.headers = std::move(header_out);
         if (!streaming)
         {
